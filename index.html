@@ -116,6 +116,7 @@ details.card summary{cursor:pointer;font-weight:600}
 .letters .n{font-size:13px;font-weight:600}
 .planv .when{margin:4px 0 0;font-weight:600;font-size:15px}
 .planv .dos{margin:0;padding-left:20px;font-size:15px;display:flex;flex-direction:column;gap:4px}
+.courses button{font-size:13px;padding:7px 6px}
 .chip.push{color:var(--accent);background:var(--accent-soft)}
 .traffic{display:flex;flex-direction:column;gap:4px}
 .tstats{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-bottom:6px}
@@ -152,6 +153,10 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     <button type="button" data-crew="four" aria-pressed="true">4+ · Women 60+</button>
     <button type="button" data-crew="eight" aria-pressed="false">8+ · Women 50+</button>
   </div>
+  <div class="crews courses" role="group" aria-label="Course">
+    <button type="button" data-course="full" aria-pressed="true">Full course</button>
+    <button type="button" data-course="short" aria-pressed="false">Short (high wind)</button>
+  </div>
   <div id="app" style="display:flex;flex-direction:column;gap:14px">
     <div class="empty">Loading the race card…</div>
   </div>
@@ -164,6 +169,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
   var app = document.getElementById("app");
   var cards = {}, sources = {};
   var crew = load("crew") || "four";
+  var course = load("course") === "short" ? "short" : "full";
   if (CREWS.indexOf(crew) < 0) crew = "four";
 
   function load(k){ try { return localStorage.getItem(PREFIX + k); } catch (e) { return null; } }
@@ -211,7 +217,11 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
 
   function render(){
     var card = cards[crew];
-    document.querySelectorAll(".crews button").forEach(function(b){
+    if (card && course === "short") card = card.short_card || null;
+    document.querySelectorAll(".courses button").forEach(function(b){
+      b.setAttribute("aria-pressed", b.getAttribute("data-course") === course ? "true" : "false");
+    });
+    document.querySelectorAll(".crews button[data-crew]").forEach(function(b){
       b.setAttribute("aria-pressed", b.getAttribute("data-crew") === crew ? "true" : "false");
     });
     app.textContent = "";
@@ -331,6 +341,21 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
       dr.appendChild(el("b", "num", Math.abs(pct).toFixed(1) + "% " + (pct >= 0 ? "slower" : "faster")));
       dr.appendChild(document.createTextNode(" than last year (" + card.day.events + " events; " + (100 * (card.day.low - 1)).toFixed(1) + " to " + (100 * (card.day.high - 1)).toFixed(1) + "%). The targets use this measured river in place of the wind model."));
       cc.appendChild(dr);
+    }
+    var rv = card.river;
+    if (rv && (rv.flow_s != null || rv.level_s != null)){
+      var rr = el("div", "cost");
+      rr.appendChild(document.createTextNode("River on race day: " + (rv.discharge_cfs != null ? Math.round(rv.discharge_cfs) + " cfs forecast (" + (rv.source || "") + ")" : "flow n/a") +
+        (rv.level_ft != null ? ", basin " + (rv.level_ft >= 0 ? "+" : "−") + Math.abs(rv.level_ft).toFixed(2) + " ft on normal" : "") + ": "));
+      rr.appendChild(el("b", "num", (rv.effect_s >= 0 ? "+" : "−") + Math.abs(rv.effect_s * (card.course ? card.course.share : 1)).toFixed(0) + " s"));
+      rr.appendChild(document.createTextNode(card.day ? " (inside the measured day factor)." : ", in the targets: every crew rows against the same current."));
+      cc.appendChild(rr);
+    }
+    if (card.course && card.course.name === "short"){
+      var sh = el("div", "cost");
+      sh.appendChild(el("b", null, "Short course: "));
+      sh.appendChild(document.createTextNode("start off " + card.course.start + ", " + (card.course.length_m / 1000).toFixed(2) + " km to the same finish. Targets are the full course's times from there on."));
+      cc.appendChild(sh);
     }
     var fl = card.flow;
     if (fl && fl.ok){
@@ -454,7 +479,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
         m.appendChild(a);
         sc.appendChild(m);
       }
-      mark("Start", null, null, null, null, true);
+      mark(card.course && card.course.name === "short" ? card.course.start + " (short-course start)" : "Start", null, null, null, null, true);
       secs2.forEach(function(s, i){
         var leg = el("div", "leg");
         var d = el("div", "detail");
@@ -534,6 +559,45 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     return {cfs: Number(last.value), m3s: Number(last.value) * 0.0283168466, at: last.dateTime};
   }
 
+  var NWM = "https://api.water.noaa.gov/nwps/v1/reaches/5868225/streamflow?series=";
+  var LEVEL = "https://waterservices.usgs.gov/nwis/iv/?sites=01104715&parameterCd=00065&format=json&period=P1D", LEVEL_MEDIAN_FT = 107.32;
+  async function riverAt(startIso){             // forecast flow at the start (NWM) and the basin level now
+    var t = Date.parse(startIso), out = {};
+    var runs = [["short_range", "shortRange"], ["medium_range", "mediumRange"]];
+    for (var i = 0; i < runs.length && out.cfs == null; i++){
+      try {
+        var blk = (await (await fetch(NWM + runs[i][0])).json())[runs[i][1]] || {};
+        var mem = blk.series || blk.mean || blk[Object.keys(blk)[0]] || {}, best = null;
+        (mem.data || []).forEach(function(x){ var d = Math.abs(Date.parse(x.validTime) - t); if (!best || d < best[0]) best = [d, x.flow]; });
+        if (best && best[0] <= 3 * 3600e3){ out.cfs = best[1]; out.source = "National Water Model, " + runs[i][0].replace("_", " "); }
+      } catch (e) {}
+    }
+    try { var v = (await (await fetch(LEVEL)).json()).value.timeSeries[0].values[0].value; var last = v[v.length - 1];
+          out.level_ft = Number(last.value) - LEVEL_MEDIAN_FT; out.level_at = last.dateTime; } catch (e) {}
+    return out;
+  }
+  function shortOf(c, pre){                      // the shortened course: same as card.short_course in Python
+    var i0 = c.sections.findIndex(function(x){ return x.start === pre.course.start; });
+    if (i0 < 0) return null;
+    var s = JSON.parse(JSON.stringify(c)); delete s.short_card;
+    var secs = s.sections.slice(i0), remain = secs.reduce(function(a, x){ return a + x.share; }, 0);
+    secs.forEach(function(x){ x.share = x.share / remain; });
+    s.sections = secs;
+    var path = secs.reduce(function(a, x){ return a + x.path_m; }, 0);
+    s.targets.forEach(function(t){
+      ["central", "fast", "slow"].forEach(function(k){
+        var before = i0 > 0 ? t["at_landmark_" + k][i0 - 1] : 0;
+        t["at_landmark_" + k] = t["at_landmark_" + k].slice(i0).map(function(v){ return v - before; });
+        t["splits_" + k] = t["splits_" + k].slice(i0); t["rudder_" + k] = t["rudder_" + k].slice(i0);
+        t["today_" + k] = t["at_landmark_" + k][t["at_landmark_" + k].length - 1];
+        t["split_overall_" + k] = t["today_" + k] / path * 500; t[k] = t[k] * remain;
+      });
+      delete t.lake_split;
+    });
+    s.course = {name: "short", start: pre.course.start, start_m: secs[0].from_m, length_m: path, share: remain};
+    s.traffic = pre.traffic;
+    return s;
+  }
   function lerp(a, b, w){ return a + (b - a) * w; }
   function mix(rows){                           // rows: [[row, weight], ...] -> weighted row
     var out = {factor: 0, share: null, felt: null, rudder: null};
@@ -579,7 +643,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     return {factor: med(per), low: lo, high: hi, events: per.length};
   }
 
-  function buildCard(cd, wx, fl){
+  function buildCard(cd, wx, fl, rv){
     var c = JSON.parse(JSON.stringify(cd.card)), T = cd.wind;
     var calm = !(wx.speed > 0.3) || !isFinite(wx.direction);
     var w = calm ? interp(T, 0, 0) : interp(T, wx.speed, wx.direction);
@@ -607,6 +671,23 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     });
     if (fl) c.flow = {ok: true, discharge_cfs: fl.cfs, discharge_m3s: fl.m3s, at: fl.at, october_median_m3s: cd.flow.october_median_m3s,
                       effect_s: interp1(cd.flow.discharge_m3s, cd.flow.effect_fraction, fl.m3s) * cd.wind.reference_s};
+    c.river = null;
+    if (rv && (rv.cfs != null || rv.level_ft != null)){
+      var ref = cd.wind.reference_s, q = rv.cfs != null ? rv.cfs * 0.0283168466 : null;
+      var flow_s = q != null ? interp1(cd.flow.discharge_m3s, cd.flow.effect_fraction, q) * ref : 0;
+      var level_s = (rv.level_ft != null && cd.level) ? interp1(cd.level.ft, cd.level.s, rv.level_ft) : 0;
+      c.river = {discharge_cfs: rv.cfs, source: rv.source, level_ft: rv.level_ft, level_at: rv.level_at,
+                 flow_s: flow_s, level_s: level_s, effect_s: flow_s + level_s, factor: 1 + (flow_s + level_s) / ref};
+      if (!day) c.targets.forEach(function(t){
+        ["central", "fast", "slow"].forEach(function(k){
+          var f = c.river.factor;
+          t["today_" + k] *= f; t["split_overall_" + k] *= f;
+          ["splits_", "at_landmark_", "rudder_"].forEach(function(n){ t[n + k] = t[n + k].map(function(x){ return x * f; }); });
+        });
+      });
+    }
+    c.course = {name: "full", start: "Start", start_m: 0, length_m: path, share: 1};
+    if (cd.card.short_card) c.short_card = shortOf(c, cd.card.short_card);
     var C = (c.plan && c.plan.variants || []).filter(function(v){ return v.letter === "C"; })[0];
     if (C){
       var runs = [], cur = null;
@@ -620,12 +701,14 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
 
   async function refresh(){
     var flow = null; try { flow = await flowNow(); } catch (e) {}
+    var rivers = {};
     for (var i = 0; i < CREWS.length; i++){
       var k = CREWS[i], cd = bundle.crews[k];
       if (!cd) continue;
       try {
         var wx = live[cd.card.race_start] || (live[cd.card.race_start] = await weatherAt(cd.card.race_start));
-        cards[k] = buildCard(cd, wx, flow); sources[k] = "live";
+        var rv = rivers[cd.card.race_start] || (rivers[cd.card.race_start] = await riverAt(cd.card.race_start));
+        cards[k] = buildCard(cd, wx, flow, rv); sources[k] = "live";
         save(k, JSON.stringify(cards[k]));
       } catch (e) {
         if (!cards[k]) { cards[k] = buildCard(cd, {kind: "no weather (offline): still air", speed: 0, direction: NaN}, flow); sources[k] = "saved"; }
@@ -675,8 +758,11 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     host.appendChild(d);
   }
 
-  document.querySelectorAll(".crews button").forEach(function(b){
+  document.querySelectorAll(".crews button[data-crew]").forEach(function(b){
     b.addEventListener("click", function(){ crew = b.getAttribute("data-crew"); save("crew", crew); render(); });
+  });
+  document.querySelectorAll(".courses button").forEach(function(b){
+    b.addEventListener("click", function(){ course = b.getAttribute("data-course"); save("course", course); render(); });
   });
   CREWS.forEach(function(k){
     try { var s = JSON.parse(load(k) || "null"); if (s && s.targets) { cards[k] = s; sources[k] = "saved"; } } catch (e) {}
