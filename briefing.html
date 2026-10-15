@@ -86,6 +86,14 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
 .lock button{font:inherit;font-weight:600;font-size:16px;border:0;border-radius:10px;padding:12px;background:var(--accent);color:#fff;cursor:pointer}
 .muted{color:var(--muted)}
 .targets td{padding:3px 6px;font-size:13.5px}
+.layers{position:absolute;left:14px;top:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px;display:flex;flex-direction:column;gap:6px;max-width:300px}
+.layers select{font:inherit;font-size:14px;padding:5px 8px;border-radius:8px;border:1px solid var(--line);background:var(--paper);color:var(--ink)}
+.scalewrap{display:flex;flex-direction:column;gap:2px}.scale{height:10px;border-radius:5px}.scalelab{display:flex;justify-content:space-between;font-size:11.5px;color:var(--muted)}
+.tip{position:absolute;display:none;pointer-events:none;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 9px;font-size:13px;max-width:300px;box-shadow:0 2px 8px rgba(0,0,0,.15);z-index:5}
+.linest{border-collapse:collapse;width:100%;font-size:13px}.linest th,.linest td{padding:4px 5px;border-bottom:1px solid var(--line);text-align:right}
+.linest th:nth-child(2),.linest td:nth-child(2){text-align:left}.linest td.tot{font-weight:700}
+.sw{display:inline-block;width:14px;height:4px;border-radius:2px;margin-right:6px;vertical-align:3px}
+
 </style>
 </head>
 <body>
@@ -108,7 +116,22 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
   var MPH = 0.44704, POINT = "42.37,-71.122";
   var NWM = "https://api.water.noaa.gov/nwps/v1/reaches/5868225/streamflow?series=";
   var LEVEL = "https://waterservices.usgs.gov/nwis/iv/?sites=01104715&parameterCd=00065&format=json&period=P1D", LEVEL_MEDIAN_FT = 107.32;
-  var state = {crew: load("crew") || "four", course: load("course") === "short" ? "short" : "full", targets: load("targets") === "on", sel: null};
+  var state = {crew: load("crew") || "four", course: load("course") === "short" ? "short" : "full", targets: load("targets") === "on", sel: null,
+               layer: load("layer") || "none", lines: JSON.parse(load("lines") || "[]")};
+  var LAYERS = [["none", "No layer"], ["total", "Time lost: total"], ["depth", "…from depth"], ["current", "…from current"], ["wind", "…from wind"],
+                ["depth_m", "Depth"], ["current_ms", "Current"], ["wind_ms", "Wind felt"]];
+  var LINE_COLORS = ["#2f6f9f", "#8a6bb0", "#6f9a2e", "#b5651d", "#0f8b8d", "#c2185b", "#5d4037", "#455a64"];
+  function lerpColor(a, b, t){ return a.map(function(x, i){ return Math.round(x + (b[i] - x) * t); }); }
+  function rgb(c){ return "rgb(" + c.join(",") + ")"; }
+  function layerColor(key, v, f){
+    if (!isFinite(v)) return null;
+    if (key === "depth_m"){ var t = Math.max(0, Math.min(1, (v - 1) / 4)); return rgb(lerpColor([214, 236, 240], [20, 70, 120], t)); }
+    if (key === "current_ms"){ var t2 = Math.max(0, Math.min(1, v / (f.cmax || 0.1))); return rgb(lerpColor([236, 244, 226], [70, 120, 30], t2)); }
+    if (key === "wind_ms"){ var t3 = Math.max(0, Math.min(1, v / (f.wmax || 5))); return rgb(lerpColor([250, 238, 226], [200, 70, 30], t3)); }
+    var c = Math.max(-1, Math.min(1, v / 4));     // seconds per 500 m against our line, +-4 s full scale
+    return c >= 0 ? rgb(lerpColor([248, 246, 240], [190, 40, 30], c)) : rgb(lerpColor([248, 246, 240], [30, 100, 170], -c));
+  }
+
   var bundle = null, live = {}, view = null;
 
   function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
@@ -222,7 +245,38 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     function S(tag, attrs){ var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
     function pts(a){ return a.map(function(p){ return p[0] + "," + (H - p[1]); }).join(" "); }
     var svg = S("svg", {viewBox: view || ("0 0 " + W + " " + H), role: "img", "aria-label": "Map of the course coloured by Saturday's wind on each stretch"});
+    var F = bundle.crews[state.crew].fields;
+    var tip = el("div", "tip");
+    if (F && state.layer !== "none" && F[state.layer]){
+      var g = S("g", {"class": "field"}), A = F[state.layer], X = F.x, Y = F.y, OK = F.ok;
+      if (F.cmax == null){
+        F.cmax = Math.max.apply(null, [].concat.apply([], F.current_ms).filter(isFinite));
+        F.wmax = Math.max.apply(null, [].concat.apply([], F.wind_ms).filter(isFinite));
+      }
+      for (var a = 0; a < A.length - 1; a++) for (var b = 0; b < A[a].length - 1; b++){
+        if (!(OK[a][b] && OK[a + 1][b] && OK[a][b + 1] && OK[a + 1][b + 1])) continue;
+        var v = 0.25 * (A[a][b] + A[a + 1][b] + A[a][b + 1] + A[a + 1][b + 1]), col = layerColor(state.layer, v, F);
+        if (!col) continue;
+        var corners = [[a, b], [a, b + 1], [a + 1, b + 1], [a + 1, b]].map(function(q){ return X[q[0]][q[1]] + "," + (H - Y[q[0]][q[1]]); }).join(" ");
+        g.appendChild(S("polygon", {points: corners, fill: col, stroke: col, "stroke-width": 1.5,
+                                    "data-v": v.toFixed(3), "data-s": F.stations[b], "data-o": F.offsets[a]}));
+      }
+      g.addEventListener("mousemove", function(e){
+        var t = e.target; if (!t.getAttribute || !t.getAttribute("data-v")) return;
+        var unit = {depth_m: " m deep", current_ms: " m/s against us", wind_ms: " m/s felt"}[state.layer], val = Number(t.getAttribute("data-v"));
+        var r = box.getBoundingClientRect();
+        tip.style.display = "block"; tip.style.left = (e.clientX - r.left + 14) + "px"; tip.style.top = (e.clientY - r.top + 14) + "px";
+        var o = Number(t.getAttribute("data-o"));
+        tip.textContent = (unit ? val.toFixed(state.layer === "current_ms" ? 3 : 1) + unit
+                                : (val >= 0 ? val.toFixed(1) + " s/500 slower than our line" : (-val).toFixed(1) + " s/500 faster than our line"))
+                          + " · " + (Number(t.getAttribute("data-s")) / 1000).toFixed(2) + " km, " + Math.abs(o).toFixed(0) + " m "
+                          + (o >= 0 ? "to port" : "to starboard") + " of the centreline";
+      });
+      g.addEventListener("mouseleave", function(){ tip.style.display = "none"; });
+      svg.appendChild(g);
+    }
     mp.banks.forEach(function(b){ svg.appendChild(S("polyline", {"class": "bank", points: pts(b)})); });
+
     m.secs.forEach(function(s){ if (s.push && s.on) svg.appendChild(S("polyline", {"class": "pushring", points: pts(mp.section_lines[s.i])})); });
     m.secs.forEach(function(s){
       var pl = S("polyline", {"class": "sec" + (s.on ? "" : " off") + (state.sel === s.i ? " sel" : ""), points: pts(mp.section_lines[s.i]), stroke: colorOf(s.label)});
@@ -230,7 +284,15 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
       pl.addEventListener("click", function(ev){ ev.stopPropagation(); state.sel = s.i; render(); });
       svg.appendChild(pl);
     });
+    if (F && F.lines) F.lines.forEach(function(L, li){
+      if (li === 0 || state.lines.indexOf(L.name) < 0) return;
+      var pl = S("polyline", {points: pts(L.points), fill: "none", stroke: LINE_COLORS[li % LINE_COLORS.length], "stroke-width": 12,
+                              "stroke-dasharray": "40 22", "stroke-linecap": "round"});
+      var tt = S("title", {}); tt.textContent = L.name + ": " + sgn(L.delta_s, 1) + " s against our line"; pl.appendChild(tt);
+      svg.appendChild(pl);
+    });
     mp.bridges.forEach(function(b){ svg.appendChild(S("line", {"class": "bridge", x1: b.a[0], y1: H - b.a[1], x2: b.b[0], y2: H - b.b[1]})); });
+
     var startXY = m.i0 > 0 ? mp.marks[m.i0 - 1].xy : mp.start;
     svg.appendChild(S("circle", {"class": "startdot", cx: startXY[0], cy: H - startXY[1], r: 34}));
     var st = S("text", {"class": "ml", x: startXY[0] + 46, y: H - startXY[1] + 80}); st.textContent = m.i0 > 0 ? "Start (short)" : "Start"; svg.appendChild(st);
@@ -241,6 +303,33 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     });
     svg.addEventListener("click", function(){ if (state.sel != null){ state.sel = null; render(); } });
     box.appendChild(svg);
+    box.appendChild(tip);
+    if (F){
+      var lc = el("div", "layers");
+      var lsel = el("select"); lsel.setAttribute("aria-label", "Map layer");
+      LAYERS.forEach(function(L){ var o = el("option", null, L[1]); o.value = L[0]; if (L[0] === state.layer) o.selected = true; lsel.appendChild(o); });
+      lsel.addEventListener("change", function(){ state.layer = lsel.value; save("layer", lsel.value); render(); });
+      lsel.addEventListener("pointerdown", function(e){ e.stopPropagation(); });
+      lc.appendChild(el("span", "sub", "Layer")); lc.appendChild(lsel);
+      if (state.layer !== "none"){
+        var scale = el("div", "scale"), lo, hi;
+        if (state.layer === "depth_m"){ lo = "1 m"; hi = "5 m+"; scale.style.background = "linear-gradient(90deg,rgb(214,236,240),rgb(20,70,120))"; }
+        else if (state.layer === "current_ms"){ lo = "0"; hi = (F.cmax || 0).toFixed(2) + " m/s"; scale.style.background = "linear-gradient(90deg,rgb(236,244,226),rgb(70,120,30))"; }
+        else if (state.layer === "wind_ms"){ lo = "0"; hi = (F.wmax || 0).toFixed(1) + " m/s"; scale.style.background = "linear-gradient(90deg,rgb(250,238,226),rgb(200,70,30))"; }
+        else { lo = "4 s/500 faster"; hi = "4 s/500 slower"; scale.style.background = "linear-gradient(90deg,rgb(30,100,170),rgb(248,246,240),rgb(190,40,30))"; }
+        var sc = el("div", "scalewrap"); sc.appendChild(scale);
+        var lab = el("div", "scalelab"); lab.appendChild(el("span", null, lo)); lab.appendChild(el("span", null, hi)); sc.appendChild(lab);
+        lc.appendChild(sc);
+        var what = {total: "Pace here against our line's pace at the same point: depth, current and wind together. Hover for numbers.",
+                    depth: "What shallow water adds here, against our line.", current: "What the current adds here, against our line.",
+                    wind: "What the wind adds here, against our line (the wind forecast when the map was built).",
+                    depth_m: "Depth below the normal pool.", current_ms: "Current against the boat at Saturday's forecast flow.",
+                    wind_ms: "Wind felt at shoulder height, after the banks and trees (forecast when built)."}[state.layer];
+        lc.appendChild(el("div", "sub", what));
+      }
+      box.appendChild(lc);
+    }
+
     // pan and zoom
     function vb(){ return svg.getAttribute("viewBox").split(" ").map(Number); }
     function setVb(a){ view = a.join(" "); svg.setAttribute("viewBox", view); }
@@ -309,7 +398,30 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     c2.appendChild(keys);
     side.appendChild(c2);
 
+    if (F && F.lines){
+      var cl = el("section", "card"); cl.appendChild(el("h2", null, "The possible lines on Saturday (against ours)"));
+      var lt = el("table", "linest"), lh = el("tr");
+      ["", "Line", "Total", "Dist.", "Depth", "Curr.", "Wind", "Turn"].forEach(function(h){ lh.appendChild(el("th", null, h)); }); lt.appendChild(lh);
+      F.lines.forEach(function(L, li){
+        var r = el("tr");
+        var cb = el("input"); cb.type = "checkbox"; cb.checked = li === 0 || state.lines.indexOf(L.name) >= 0; cb.disabled = li === 0;
+        cb.setAttribute("aria-label", "Show " + L.name);
+        cb.addEventListener("change", function(){ var k = state.lines.indexOf(L.name); if (cb.checked && k < 0) state.lines.push(L.name);
+          if (!cb.checked && k >= 0) state.lines.splice(k, 1); save("lines", JSON.stringify(state.lines)); render(); });
+        var td0 = el("td"); td0.appendChild(cb); r.appendChild(td0);
+        var nm = el("td"); var swatch = el("i", "sw"); swatch.style.background = li === 0 ? "var(--accent)" : LINE_COLORS[li % LINE_COLORS.length];
+        nm.appendChild(swatch); nm.appendChild(document.createTextNode(L.name)); r.appendChild(nm);
+        var d = L.delta;
+        [L.delta_s, d.distance, d.depth, d.current, d.wind, d.turning].forEach(function(v, k){
+          r.appendChild(el("td", "num" + (k === 0 ? " tot" : ""), li === 0 ? (k === 0 ? fmt(L.total_s) : "–") : sgn(v, 1))); });
+        lt.appendChild(r);
+      });
+      cl.appendChild(lt);
+      cl.appendChild(el("p", "sub", "Seconds at our requalifying pace in Saturday's forecast wind and flow; + is slower than our planned line. Distance includes the plain cost of the extra metres. Tick a line to draw it (dashed)."));
+      side.appendChild(cl);
+    }
     var c3 = el("section", "card detail");
+
     if (state.sel == null){
       c3.appendChild(el("h2", null, "A stretch"));
       c3.appendChild(el("p", "muted", "Click a stretch on the map or in the list for its wind, current, depth, turning and the call to make there."));
