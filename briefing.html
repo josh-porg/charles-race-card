@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Charles Briefing Map</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600;700&family=Barlow:wght@400;500;600&display=swap">
+<style>
+:root{
+  --paper:#eef2f1; --card:#ffffff; --ink:#13222b; --muted:#5a6a73; --line:#d5dde0; --water:#dfeaee; --bank:#8a9aa3;
+  --accent:#d9532b; --head:#c2412b; --tail:#2b7a55; --cross:#c08a12; --calm:#7d8b93;
+  --c1:#2f6f9f; --c2:#6f9a2e; --c3:#d9532b; --c4:#8a6bb0; --seg:#e4eaec;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    --paper:#0b1418; --card:#13202a; --ink:#e5eef2; --muted:#93a5ae; --line:#26363f; --water:#132730; --bank:#5d717b;
+    --accent:#ff7b52; --head:#ff7a66; --tail:#62c895; --cross:#f0c25e; --calm:#93a5ae;
+    --c1:#6fa8d6; --c2:#a6c46a; --c3:#ff7b52; --c4:#b69ad8; --seg:#1c2a32;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0b1418; --card:#13202a; --ink:#e5eef2; --muted:#93a5ae; --line:#26363f; --water:#132730; --bank:#5d717b;
+  --accent:#ff7b52; --head:#ff7a66; --tail:#62c895; --cross:#f0c25e; --calm:#93a5ae;
+  --c1:#6fa8d6; --c2:#a6c46a; --c3:#ff7b52; --c4:#b69ad8; --seg:#1c2a32;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%}
+body{background:var(--paper);color:var(--ink);font-family:"Barlow",system-ui,"Segoe UI",sans-serif;font-size:16px}
+.num{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-variant-numeric:tabular-nums}
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 18px;padding:12px 18px;border-bottom:1px solid var(--line);background:var(--card)}
+header h1{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:28px;margin:0;line-height:1;font-weight:700}
+.sub{font-size:13px;color:var(--muted)}
+.seg{display:inline-grid;grid-auto-flow:column;gap:3px;background:var(--seg);border-radius:10px;padding:3px}
+.seg button{font:inherit;font-weight:600;font-size:14px;border:0;border-radius:8px;padding:7px 12px;background:transparent;color:var(--muted);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12)}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.live{margin-left:auto;display:flex;align-items:center;gap:8px;font-size:14px;color:var(--muted)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--tail)}
+main{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(320px,1fr);min-height:0}
+@media (max-width:900px){main{grid-template-columns:1fr} .app{height:auto}}
+.mapbox{position:relative;min-height:420px;background:var(--water);overflow:hidden;cursor:grab}
+.mapbox.drag{cursor:grabbing}
+.mapbox svg{width:100%;height:100%;display:block;touch-action:none}
+.bank{fill:none;stroke:var(--bank);stroke-width:10;stroke-linejoin:round}
+.sec{fill:none;stroke-width:34;stroke-linecap:round;stroke-linejoin:round;cursor:pointer;transition:stroke-width .15s}
+.sec:hover{stroke-width:48}
+.sec.sel{stroke-width:58}
+.sec.off{opacity:.22}
+.pushring{fill:none;stroke:var(--ink);stroke-opacity:.18;stroke-width:90;stroke-linecap:round}
+.bridge{stroke:var(--ink);stroke-width:22;stroke-linecap:round;opacity:.6}
+.mk{fill:var(--card);stroke:var(--ink);stroke-width:7}
+.ml{fill:var(--ink);font:600 58px "Barlow",system-ui,sans-serif;paint-order:stroke;stroke:var(--water);stroke-width:14px}
+.startdot{fill:var(--tail)}
+.wind{position:absolute;top:14px;right:14px;background:var(--card);border:1px solid var(--line);border-radius:14px;padding:10px 14px;display:flex;align-items:center;gap:12px}
+.wind svg{width:54px;height:54px}
+.wind .big{font-size:30px;font-weight:700;line-height:1}
+.legend{position:absolute;left:14px;bottom:14px;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:8px 12px;font-size:13px;display:flex;gap:12px;flex-wrap:wrap}
+.legend i{display:inline-block;width:18px;height:6px;border-radius:3px;margin-right:5px;vertical-align:2px}
+.zoom{position:absolute;right:14px;bottom:14px;display:flex;flex-direction:column;gap:4px}
+.zoom button{font:inherit;font-size:18px;font-weight:700;width:36px;height:36px;border-radius:8px;border:1px solid var(--line);background:var(--card);color:var(--ink);cursor:pointer}
+aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;border-left:1px solid var(--line)}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+.card h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
+.conds{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.conds b{display:block;font-size:26px;line-height:1}
+.conds span{font-size:12.5px;color:var(--muted)}
+.bars{display:flex;flex-direction:column;gap:5px}
+.bar{display:grid;grid-template-columns:150px 1fr 54px;align-items:center;gap:8px;font-size:13px;cursor:pointer;border-radius:6px;padding:2px 4px}
+.bar.sel{background:var(--seg)}
+.bar.off{opacity:.35}
+.track{display:flex;height:14px;border-radius:4px;overflow:hidden;background:var(--seg)}
+.track i{display:block;height:100%}
+.bar .v{text-align:right;color:var(--muted)}
+.keys{display:flex;gap:12px;font-size:12.5px;color:var(--muted);margin-top:8px;flex-wrap:wrap}
+.keys i{display:inline-block;width:11px;height:11px;border-radius:2px;margin-right:4px;vertical-align:-1px}
+.totals{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-top:8px}
+.totals b{display:block;font-size:22px}
+.totals span{font-size:12px;color:var(--muted)}
+.detail h3{font-family:"Barlow Condensed","Arial Narrow",sans-serif;font-size:24px;margin:0 0 4px}
+.detail p{margin:6px 0;font-size:14.5px}
+.chip{display:inline-block;font-size:12px;font-weight:600;padding:2px 9px;border-radius:999px;color:var(--card)}
+.lock{max-width:420px;margin:12vh auto;display:flex;flex-direction:column;gap:10px;padding:24px}
+.lock input{font:inherit;font-size:18px;padding:12px;border:1px solid var(--line);border-radius:10px;background:var(--paper);color:var(--ink)}
+.lock button{font:inherit;font-weight:600;font-size:16px;border:0;border-radius:10px;padding:12px;background:var(--accent);color:#fff;cursor:pointer}
+.muted{color:var(--muted)}
+.targets td{padding:3px 6px;font-size:13.5px}
+</style>
+</head>
+<body>
+<div class="app" id="root">
+  <div class="card lock" id="lock">
+    <h1 style="font-family:'Barlow Condensed',sans-serif;margin:0">Charles briefing map</h1>
+    <p class="muted" id="lockmsg">Enter the coxswains' passphrase.</p>
+    <input type="password" id="pass" aria-label="Passphrase" placeholder="passphrase" autocomplete="current-password">
+    <button type="button" id="unlock">Unlock</button>
+  </div>
+</div>
+<script>
+(function(){
+  "use strict";
+  var KEY = "charles-brief:";
+  function load(k){ try { return localStorage.getItem(KEY + k); } catch (e) { return null; } }
+  function save(k, v){ try { localStorage.setItem(KEY + k, v); } catch (e) {} }
+  var COMPASS = {N:0,NNE:22.5,NE:45,ENE:67.5,E:90,ESE:112.5,SE:135,SSE:157.5,S:180,SSW:202.5,SW:225,WSW:247.5,W:270,WNW:292.5,NW:315,NNW:337.5};
+  var NAMES = ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
+  var MPH = 0.44704, POINT = "42.37,-71.122";
+  var NWM = "https://api.water.noaa.gov/nwps/v1/reaches/5868225/streamflow?series=";
+  var LEVEL = "https://waterservices.usgs.gov/nwis/iv/?sites=01104715&parameterCd=00065&format=json&period=P1D", LEVEL_MEDIAN_FT = 107.32;
+  var state = {crew: load("crew") || "four", course: load("course") === "short" ? "short" : "full", targets: load("targets") === "on", sel: null};
+  var bundle = null, live = {}, view = null;
+
+  function el(tag, cls, text){ var e = document.createElement(tag); if (cls) e.className = cls; if (text != null) e.textContent = text; return e; }
+  function fmt(sec){ if (sec == null || !isFinite(sec)) return "–"; sec = Math.round(sec * 10) / 10; var m = Math.floor(sec / 60), s = sec - 60 * m; return m + ":" + (s < 10 ? "0" : "") + s.toFixed(1); }
+  function sgn(x, d){ return (x >= 0 ? "+" : "−") + Math.abs(x).toFixed(d == null ? 0 : d); }
+  function compass(d){ return isFinite(d) ? NAMES[Math.round(((d % 360) + 360) % 360 / 22.5) % 16] : "var."; }
+  function b64(s){ return Uint8Array.from(atob(s), function(c){ return c.charCodeAt(0); }); }
+  async function decrypt(pass){
+    var enc = await (await fetch("data.enc", {cache: "no-cache"})).json();
+    var km = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+    var key = await crypto.subtle.deriveKey({name: "PBKDF2", salt: b64(enc.salt), iterations: enc.iterations, hash: "SHA-256"}, km, {name: "AES-GCM", length: 256}, false, ["decrypt"]);
+    return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name: "AES-GCM", iv: b64(enc.iv)}, key, b64(enc.data))));
+  }
+  function nums(t){ return ((t || "").match(/\d+(\.\d+)?/g) || []).map(Number); }
+  async function getJSON(u){ var r = await fetch(u, {headers: {Accept: "application/geo+json"}}); if (!r.ok) throw new Error(r.status); return r.json(); }
+  async function weatherAt(iso){
+    var t = Date.parse(iso), pts = await getJSON("https://api.weather.gov/points/" + POINT);
+    try { var hr = (await getJSON(pts.properties.forecastHourly)).properties.periods;
+      for (var i = 0; i < hr.length; i++){ var p = hr[i]; if (Date.parse(p.startTime) <= t && t < Date.parse(p.endTime)) { var n = nums(p.windSpeed);
+        return {kind: "hourly forecast for the start", speed: Math.max.apply(null, n) * MPH, direction: COMPASS[p.windDirection], sky: p.shortForecast}; } } } catch (e) {}
+    try { var dy = (await getJSON(pts.properties.forecast)).properties.periods;
+      for (var j = 0; j < dy.length; j++){ var q = dy[j]; if (Date.parse(q.startTime) <= t && t < Date.parse(q.endTime)) { var m = nums(q.windSpeed);
+        return {kind: "12-hour forecast (" + q.name + ")", speed: 0.5 * (Math.min.apply(null, m) + Math.max.apply(null, m)) * MPH, direction: COMPASS[q.windDirection], sky: q.shortForecast}; } } } catch (e) {}
+    var o = (await getJSON("https://api.weather.gov/stations/KBOS/observations/latest")).properties;
+    return {kind: "observed now at Logan", speed: (o.windSpeed.value || 0) / 3.6, direction: o.windDirection.value, sky: o.textDescription};
+  }
+  async function riverAt(iso){
+    var t = Date.parse(iso), out = {};
+    var runs = [["short_range", "shortRange"], ["medium_range", "mediumRange"]];
+    for (var i = 0; i < runs.length && out.cfs == null; i++){
+      try { var blk = (await (await fetch(NWM + runs[i][0])).json())[runs[i][1]] || {};
+        var mem = blk.series || blk.mean || blk[Object.keys(blk)[0]] || {}, best = null;
+        (mem.data || []).forEach(function(x){ var d = Math.abs(Date.parse(x.validTime) - t); if (!best || d < best[0]) best = [d, x.flow]; });
+        if (best && best[0] <= 3 * 3600e3) out.cfs = best[1]; } catch (e) {}
+    }
+    try { var v = (await (await fetch(LEVEL)).json()).value.timeSeries[0].values[0].value; out.level_ft = Number(v[v.length - 1].value) - LEVEL_MEDIAN_FT; } catch (e) {}
+    return out;
+  }
+  function mix(rows){
+    var out = {factor: 0, share: null, felt: null};
+    rows.forEach(function(rw){ var r = rw[0], w = rw[1]; out.factor += w * r.factor;
+      ["share", "felt"].forEach(function(k){ if (!out[k]) out[k] = r[k].map(function(){ return 0; }); r[k].forEach(function(x, i){ out[k][i] += w * x; }); }); });
+    var s = out.share.reduce(function(a, b){ return a + b; }, 0); out.share = out.share.map(function(x){ return x / s; });
+    return out;
+  }
+  function interp(T, speed, dir){
+    var S = T.speeds, D = T.directions, n = D.length, v = Math.max(0, Math.min(speed || 0, S[S.length - 1]));
+    var i = 0; while (i < S.length - 2 && v > S[i + 1]) i++;
+    var ws = (v - S[i]) / (S[i + 1] - S[i]), x = (((isFinite(dir) ? dir : 0) % 360) + 360) % 360 / (360 / n), j = Math.floor(x) % n, wd = x - Math.floor(x), j1 = (j + 1) % n;
+    function row(a, b){ return T.rows[a * n + b]; }
+    return mix([[row(i, j), (1 - ws) * (1 - wd)], [row(i, j1), (1 - ws) * wd], [row(i + 1, j), ws * (1 - wd)], [row(i + 1, j1), ws * wd]]);
+  }
+  function interp1(xs, ys, x){ if (x <= xs[0]) return ys[0]; for (var i = 0; i < xs.length - 1; i++) if (x <= xs[i + 1]) return ys[i] + (ys[i + 1] - ys[i]) * (x - xs[i]) / (xs[i + 1] - xs[i]); return ys[ys.length - 1]; }
+  function labelOf(rel){ if (!isFinite(rel)) return "calm"; var r = ((rel % 360) + 360) % 360; if (r <= 45 || r >= 315) return "headwind"; if (r >= 135 && r <= 225) return "tailwind"; return r < 180 ? "cross from starboard" : "cross from port"; }
+  function colorOf(label){ return label === "headwind" ? "var(--head)" : label === "tailwind" ? "var(--tail)" : label === "calm" ? "var(--calm)" : "var(--cross)"; }
+
+  // ---- the model on the page: Saturday's numbers for the chosen crew, from the live forecast ----
+  function compute(){
+    var cd = bundle.crews[state.crew], card = cd.card, T = cd.wind, ref = T.reference_s;
+    var wx = live.wx[card.race_start], rv = live.rv[card.race_start] || {};
+    var calmish = !(wx && wx.speed > 0.3 && isFinite(wx.direction));
+    var w = calmish ? interp(T, 0, 0) : interp(T, wx.speed, wx.direction), calm = interp(T, 0, 0);
+    var rows = (cd.analysis && cd.analysis.rows) || [];
+    var qScale = (rv.cfs != null && cd.analysis) ? (rv.cfs * 0.0283168466) / cd.analysis.flow_m3s : 1;
+    var i0 = state.course === "short" ? card.sections.findIndex(function(s){ return s.start === "Riverside BC"; }) : 0;
+    var secs = card.sections.map(function(s, i){
+      var rel = calmish ? NaN : (((wx.direction - T.headings[i]) % 360) + 360) % 360, a = rows[i] || {};
+      return {i: i, start: s.start, end: s.end, metres: s.path_m, push: s.push, note: s.note, river: s.river_slow_s500,
+              label: labelOf(rel), felt: calmish ? 0 : w.felt[i],
+              wind: ref * (w.factor * w.share[i] - calm.share[i]), current: (a.current_s || 0) * qScale,
+              depth: a.depth_s || 0, turning: a.turning_s || 0, on: i >= i0, share: w.share[i]};
+    });
+    var flow_s = rv.cfs != null ? interp1(cd.flow.discharge_m3s, cd.flow.effect_fraction, rv.cfs * 0.0283168466) * ref : 0;
+    var level_s = (rv.level_ft != null && cd.level) ? interp1(cd.level.ft, cd.level.s, rv.level_ft) : 0;
+    var factor = w.factor * (1 + (flow_s + level_s) / ref);
+    var goals = card.targets.map(function(g){
+      var total = g.central * factor, sub = secs.filter(function(s){ return s.on; }), shareOn = sub.reduce(function(a, s){ return a + s.share; }, 0);
+      var cum = 0, at = {};
+      secs.forEach(function(s){ if (s.on){ cum += total * s.share; at[s.i] = {t: cum, split: total * s.share / s.metres * 500}; } });
+      return {name: g.name, total: total * shareOn, at: at};
+    });
+    return {card: card, wx: wx, rv: rv, secs: secs, goals: goals, flow_s: flow_s, level_s: level_s, i0: i0};
+  }
+
+  function render(){
+    var m = compute(), card = m.card, root = document.getElementById("root");
+    root.textContent = "";
+    var header = el("header");
+    var titles = el("div");
+    titles.appendChild(el("h1", null, "The Charles · Saturday 17 October"));
+    var startT = new Date(card.race_start);
+    titles.appendChild(el("div", "sub", card.event + " · start " + startT.toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit", timeZone: "America/New_York"}) + " ET · bow " + (card.traffic ? card.traffic.own_bow : "")));
+    header.appendChild(titles);
+    function segCtl(name, opts, cur, onPick){
+      var g = el("div", "seg"); g.setAttribute("role", "group"); g.setAttribute("aria-label", name);
+      opts.forEach(function(o){ var b = el("button", null, o[1]); b.type = "button"; b.setAttribute("aria-pressed", o[0] === cur ? "true" : "false");
+        b.addEventListener("click", function(){ onPick(o[0]); }); g.appendChild(b); });
+      return g;
+    }
+    header.appendChild(segCtl("Crew", [["four", "4+ · 60+"], ["eight", "8+ · 50+"]], state.crew, function(v){ state.crew = v; state.sel = null; save("crew", v); render(); }));
+    header.appendChild(segCtl("Course", [["full", "Full 4.8 km"], ["short", "Short (wind) 3.7 km"]], state.course, function(v){ state.course = v; save("course", v); render(); }));
+    header.appendChild(segCtl("Targets", [["off", "Rowers' view"], ["on", "Coxswains' view"]], state.targets ? "on" : "off", function(v){ state.targets = v === "on"; save("targets", v); render(); }));
+    var lv = el("div", "live"); lv.appendChild(el("span", "dot")); lv.appendChild(el("span", null, "Live · " + (live.at ? live.at.toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"}) : "")));
+    header.appendChild(lv);
+    root.appendChild(header);
+
+    var main = el("main");
+    // ---- map ----
+    var box = el("div", "mapbox"), mp = card.map, W = mp.width, H = mp.height;
+    var NS = "http://www.w3.org/2000/svg";
+    function S(tag, attrs){ var e = document.createElementNS(NS, tag); for (var k in attrs) e.setAttribute(k, attrs[k]); return e; }
+    function pts(a){ return a.map(function(p){ return p[0] + "," + (H - p[1]); }).join(" "); }
+    var svg = S("svg", {viewBox: view || ("0 0 " + W + " " + H), role: "img", "aria-label": "Map of the course coloured by Saturday's wind on each stretch"});
+    mp.banks.forEach(function(b){ svg.appendChild(S("polyline", {"class": "bank", points: pts(b)})); });
+    m.secs.forEach(function(s){ if (s.push && s.on) svg.appendChild(S("polyline", {"class": "pushring", points: pts(mp.section_lines[s.i])})); });
+    m.secs.forEach(function(s){
+      var pl = S("polyline", {"class": "sec" + (s.on ? "" : " off") + (state.sel === s.i ? " sel" : ""), points: pts(mp.section_lines[s.i]), stroke: colorOf(s.label)});
+      var t = S("title", {}); t.textContent = s.start + " to " + s.end + ": " + s.label; pl.appendChild(t);
+      pl.addEventListener("click", function(ev){ ev.stopPropagation(); state.sel = s.i; render(); });
+      svg.appendChild(pl);
+    });
+    mp.bridges.forEach(function(b){ svg.appendChild(S("line", {"class": "bridge", x1: b.a[0], y1: H - b.a[1], x2: b.b[0], y2: H - b.b[1]})); });
+    var startXY = m.i0 > 0 ? mp.marks[m.i0 - 1].xy : mp.start;
+    svg.appendChild(S("circle", {"class": "startdot", cx: startXY[0], cy: H - startXY[1], r: 34}));
+    var st = S("text", {"class": "ml", x: startXY[0] + 46, y: H - startXY[1] + 80}); st.textContent = m.i0 > 0 ? "Start (short)" : "Start"; svg.appendChild(st);
+    mp.marks.forEach(function(k){
+      if (!/^(Powerhouse|Riverside BC|Mile 1|Mile 2|Big turn|Eliot Bridge|Weeks Footbridge|Larz Anderson|River Street|Western Avenue|Wooden pier|Finish)$/.test(k.name)) return;
+      svg.appendChild(S("circle", {"class": "mk", cx: k.xy[0], cy: H - k.xy[1], r: 18}));
+      var tx = S("text", {"class": "ml", x: k.xy[0] + 32, y: H - k.xy[1] + 20}); tx.textContent = k.name.replace(" Footbridge", "").replace(" Bridge", "").replace("Larz ", ""); svg.appendChild(tx);
+    });
+    svg.addEventListener("click", function(){ if (state.sel != null){ state.sel = null; render(); } });
+    box.appendChild(svg);
+    // pan and zoom
+    function vb(){ return svg.getAttribute("viewBox").split(" ").map(Number); }
+    function setVb(a){ view = a.join(" "); svg.setAttribute("viewBox", view); }
+    function zoomBy(f, cx, cy){ var a = vb(), nw = a[2] * f, nh = a[3] * f; cx = cx == null ? a[0] + a[2] / 2 : cx; cy = cy == null ? a[1] + a[3] / 2 : cy;
+      setVb([cx - (cx - a[0]) * f, cy - (cy - a[1]) * f, nw, nh]); }
+    svg.addEventListener("wheel", function(e){ e.preventDefault(); var r = svg.getBoundingClientRect(), a = vb();
+      zoomBy(e.deltaY > 0 ? 1.15 : 1 / 1.15, a[0] + (e.clientX - r.left) / r.width * a[2], a[1] + (e.clientY - r.top) / r.height * a[3]); }, {passive: false});
+    var drag = null;
+    svg.addEventListener("pointerdown", function(e){ drag = {x: e.clientX, y: e.clientY, a: vb(), moved: false}; box.classList.add("drag"); });
+    window.addEventListener("pointermove", function(e){ if (!drag) return; var r = svg.getBoundingClientRect(), dx = (e.clientX - drag.x) / r.width * drag.a[2], dy = (e.clientY - drag.y) / r.height * drag.a[3];
+      if (Math.abs(dx) + Math.abs(dy) > 2) drag.moved = true; setVb([drag.a[0] - dx, drag.a[1] - dy, drag.a[2], drag.a[3]]); });
+    window.addEventListener("pointerup", function(){ drag = null; box.classList.remove("drag"); });
+    var zm = el("div", "zoom");
+    [["+", 1 / 1.3], ["−", 1.3], ["⟲", 0]].forEach(function(z){ var b = el("button", null, z[0]); b.type = "button"; b.setAttribute("aria-label", z[0] === "+" ? "Zoom in" : z[0] === "−" ? "Zoom out" : "Reset view");
+      b.addEventListener("click", function(e){ e.stopPropagation(); if (z[1]) zoomBy(z[1]); else { view = null; svg.setAttribute("viewBox", "0 0 " + W + " " + H); } }); zm.appendChild(b); });
+    box.appendChild(zm);
+    // wind badge
+    var wx = m.wx || {}, wb = el("div", "wind");
+    var arrow = document.createElementNS(NS, "svg"); arrow.setAttribute("viewBox", "0 0 24 24");
+    arrow.innerHTML = '<path d="M12 3v15m0 0l-5-5m5 5l5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>';
+    if (isFinite(wx.direction)) arrow.style.transform = "rotate(" + wx.direction + "deg)";
+    wb.appendChild(arrow);
+    var wt = el("div"); wt.appendChild(el("div", "big num", wx.speed != null ? Math.round(wx.speed / MPH) + " mph " + compass(wx.direction) : "–"));
+    wt.appendChild(el("div", "sub", wx.kind || "")); wb.appendChild(wt); box.appendChild(wb);
+    var lg = el("div", "legend");
+    [["headwind", "var(--head)"], ["cross", "var(--cross)"], ["tailwind", "var(--tail)"]].forEach(function(x){ var sp = el("span"); var i = el("i"); i.style.background = x[1]; sp.appendChild(i); sp.appendChild(document.createTextNode(x[0])); lg.appendChild(sp); });
+    var sp2 = el("span", null, "wide grey: push here (shallows) · click a stretch"); lg.appendChild(sp2);
+    box.appendChild(lg);
+    main.appendChild(box);
+
+    // ---- side panel ----
+    var side = el("aside");
+    var c1 = el("section", "card"); c1.appendChild(el("h2", null, "Saturday's river and wind"));
+    var conds = el("div", "conds");
+    [[wx.speed != null ? Math.round(wx.speed / MPH) + " mph" : "–", "wind from " + compass(wx.direction)],
+     [m.rv.cfs != null ? Math.round(m.rv.cfs) + " cfs" : "–", "river flow forecast (Oct median ~100)"],
+     [m.rv.level_ft != null ? sgn(m.rv.level_ft, 2) + " ft" : "–", "basin level on normal"]].forEach(function(c){
+      var d = el("div"); d.appendChild(el("b", "num", c[0])); d.appendChild(el("span", null, c[1])); conds.appendChild(d); });
+    c1.appendChild(conds);
+    c1.appendChild(el("p", "sub", "Wind: National Weather Service for the start. Flow: National Water Model. Level: USGS at the dam. Every crew rows the same river within the hour."));
+    side.appendChild(c1);
+
+    var on = m.secs.filter(function(s){ return s.on; });
+    var sum = function(k){ return on.reduce(function(a, s){ return a + s[k]; }, 0); };
+    var c2 = el("section", "card"); c2.appendChild(el("h2", null, "Where the time goes (seconds, our pace)"));
+    var tots = el("div", "totals");
+    [["wind", "Wind"], ["current", "Current"], ["depth", "Shallows"], ["turning", "Turning"]].forEach(function(k){
+      var d = el("div"); d.appendChild(el("b", "num", sgn(sum(k[0])))); d.appendChild(el("span", null, k[1])); tots.appendChild(d); });
+    c2.appendChild(tots);
+    var bars = el("div", "bars"); bars.style.marginTop = "10px";
+    var maxv = Math.max.apply(null, m.secs.map(function(s){ return Math.max(0, s.wind) + s.current + s.depth + s.turning; })) || 1;
+    m.secs.forEach(function(s){
+      var b = el("div", "bar" + (state.sel === s.i ? " sel" : "") + (s.on ? "" : " off"));
+      b.appendChild(el("span", null, s.start.replace(" Footbridge", "") + " → " + s.end.replace(" Footbridge", "")));
+      var tr = el("div", "track");
+      [["depth", "var(--c1)"], ["current", "var(--c2)"], ["wind", "var(--c3)"], ["turning", "var(--c4)"]].forEach(function(k){
+        var v = Math.max(0, s[k[0]]); var i = el("i"); i.style.width = (100 * v / maxv) + "%"; i.style.background = k[1]; tr.appendChild(i); });
+      b.appendChild(tr);
+      b.appendChild(el("span", "v num", sgn(s.wind + s.current + s.depth + s.turning) + " s"));
+      b.addEventListener("click", function(){ state.sel = s.i; render(); });
+      bars.appendChild(b);
+    });
+    c2.appendChild(bars);
+    var keys = el("div", "keys");
+    [["Shallows", "var(--c1)"], ["Current", "var(--c2)"], ["Wind", "var(--c3)"], ["Turning", "var(--c4)"]].forEach(function(k){ var sp = el("span"); var i = el("i"); i.style.background = k[1]; sp.appendChild(i); sp.appendChild(document.createTextNode(k[0])); keys.appendChild(sp); });
+    c2.appendChild(keys);
+    side.appendChild(c2);
+
+    var c3 = el("section", "card detail");
+    if (state.sel == null){
+      c3.appendChild(el("h2", null, "A stretch"));
+      c3.appendChild(el("p", "muted", "Click a stretch on the map or in the list for its wind, current, depth, turning and the call to make there."));
+    } else {
+      var s = m.secs[state.sel];
+      c3.appendChild(el("h2", null, "Stretch"));
+      c3.appendChild(el("h3", null, s.start + " → " + s.end));
+      var chip = el("span", "chip", s.label); chip.style.background = colorOf(s.label);
+      var p1 = el("p"); p1.appendChild(chip); p1.appendChild(document.createTextNode("  " + Math.round(s.metres) + " m · wind felt about " + Math.round(s.felt / MPH) + " mph")); c3.appendChild(p1);
+      c3.appendChild(el("p", null, "Costs " + sgn(s.wind) + " s wind, " + sgn(s.current) + " s current, " + sgn(s.depth) + " s shallows, " + sgn(s.turning) + " s turning."));
+      if (s.push) c3.appendChild(el("p", null, "Push here: the river itself is slow (" + sgn(s.river, 1) + " s/500 in still air)."));
+      var dec = (card.decisions || []).filter(function(d){ return d.bridge === s.end; })[0];
+      if (dec) c3.appendChild(el("p", null, s.end + ": " + dec.advice));
+      if (s.end === "Eliot Bridge" || s.start === "Big turn") c3.appendChild(el("p", null, "The big turn: start it early, one even rate. The split will drift: that is the rudder, not the crew."));
+      if (!s.on) c3.appendChild(el("p", "muted", "Not raced on the short course."));
+      if (state.targets){
+        var tb = el("table", "targets"), hd = el("tr"); ["Goal", "Split", "Be here by"].forEach(function(h){ hd.appendChild(el("th", null, h)); }); tb.appendChild(hd);
+        m.goals.forEach(function(g){ var a = g.at[s.i]; if (!a) return; var r = el("tr");
+          [g.name, fmt(a.split), fmt(a.t)].forEach(function(v, j){ r.appendChild(el("td", j ? "num" : null, v)); }); tb.appendChild(r); });
+        c3.appendChild(tb);
+      }
+    }
+    side.appendChild(c3);
+    if (state.targets){
+      var c4 = el("section", "card"); c4.appendChild(el("h2", null, "Targets today (" + (state.course === "short" ? "short course" : "full course") + ")"));
+      var tb2 = el("table", "targets");
+      m.goals.forEach(function(g){ var r = el("tr"); r.appendChild(el("td", null, g.name)); r.appendChild(el("td", "num", fmt(g.total))); tb2.appendChild(r); });
+      c4.appendChild(tb2); c4.appendChild(el("p", "sub", "Coxswains only. Switch to the rowers' view before projecting to crews."));
+      side.appendChild(c4);
+    }
+    main.appendChild(side);
+    root.appendChild(main);
+  }
+
+  async function refresh(){
+    live.wx = live.wx || {}; live.rv = live.rv || {};
+    var starts = Object.keys(bundle.crews).map(function(k){ return bundle.crews[k].card.race_start; });
+    for (var i = 0; i < starts.length; i++){
+      try { live.wx[starts[i]] = await weatherAt(starts[i]); } catch (e) { live.wx[starts[i]] = live.wx[starts[i]] || {kind: "no forecast (offline)", speed: 0, direction: NaN}; }
+      try { live.rv[starts[i]] = await riverAt(starts[i]); } catch (e) {}
+    }
+    live.at = new Date();
+    render();
+  }
+
+  async function unlock(pass){
+    try { bundle = await decrypt(pass); save("pass", pass); await refresh(); setInterval(refresh, 15 * 60 * 1000); }
+    catch (e) { document.getElementById("lockmsg").textContent = "That passphrase did not open the briefing. Try again."; }
+  }
+  document.getElementById("unlock").addEventListener("click", function(){ unlock(document.getElementById("pass").value.trim()); });
+  document.getElementById("pass").addEventListener("keydown", function(e){ if (e.key === "Enter") unlock(e.target.value.trim()); });
+  var saved = load("pass"); if (saved) unlock(saved);
+})();
+</script>
+</body>
+</html>
