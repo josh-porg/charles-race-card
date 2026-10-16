@@ -624,8 +624,14 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
         var mem = blk.series || blk.mean || blk[Object.keys(blk)[0]] || {}, best = null;
         (mem.data || []).forEach(function(x){ var d = Math.abs(Date.parse(x.validTime) - t); if (!best || d < best[0]) best = [d, x.flow]; });
         if (best && best[0] <= 3 * 3600e3){ out.cfs = best[1]; out.source = "National Water Model, " + runs[i][0].replace("_", " "); }
+        else if (i === 0 && mem.data && mem.data.length){             // the start beyond the short range: its last hour, if within 18 h
+          var lastS = mem.data[mem.data.length - 1], gap = t - Date.parse(lastS.validTime);
+          if (gap >= 0 && gap <= 18 * 3600e3) out.fallback = {cfs: lastS.flow, source: "National Water Model, short range's last hour (the start not yet in range)"};
+        }
       } catch (e) {}
     }
+    if (out.cfs == null && out.fallback){ out.cfs = out.fallback.cfs; if (out.fallback.source) out.source = out.fallback.source; }
+    delete out.fallback;
     try { var v = (await (await fetch(LEVEL)).json()).value.timeSeries[0].values[0].value; var last = v[v.length - 1];
           out.level_ft = Number(last.value) - LEVEL_MEDIAN_FT; out.level_at = last.dateTime; } catch (e) {}
     return out;

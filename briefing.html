@@ -182,8 +182,12 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
       try { var blk = (await (await fetch(NWM + runs[i][0])).json())[runs[i][1]] || {};
         var mem = blk.series || blk.mean || blk[Object.keys(blk)[0]] || {}, best = null;
         (mem.data || []).forEach(function(x){ var d = Math.abs(Date.parse(x.validTime) - t); if (!best || d < best[0]) best = [d, x.flow]; });
-        if (best && best[0] <= 3 * 3600e3) out.cfs = best[1]; } catch (e) {}
+        if (best && best[0] <= 3 * 3600e3) out.cfs = best[1];
+        else if (i === 0 && mem.data && mem.data.length){ var lastS = mem.data[mem.data.length - 1], gap = t - Date.parse(lastS.validTime);
+          if (gap >= 0 && gap <= 18 * 3600e3) out.fallback = {cfs: lastS.flow}; } } catch (e) {}
     }
+    if (out.cfs == null && out.fallback){ out.cfs = out.fallback.cfs; if (out.fallback.source) out.source = out.fallback.source; }
+    delete out.fallback;
     try { var v = (await (await fetch(LEVEL)).json()).value.timeSeries[0].values[0].value; out.level_ft = Number(v[v.length - 1].value) - LEVEL_MEDIAN_FT; } catch (e) {}
     return out;
   }
