@@ -119,6 +119,9 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
   var state = {crew: load("crew") || "four", course: load("course") === "short" ? "short" : "full", targets: load("targets") === "on", sel: null,
                layer: load("layer") || "none", lines: JSON.parse(load("lines") || "[]"), view: load("view") === "straight" ? "straight" : "map",
                gusts: load("gusts") === "on"};
+  state.linesSet = load("lines") != null;
+  // the other practised arch line is drawn until the viewer picks lines themselves
+  function lineOn(name){ return state.linesSet ? state.lines.indexOf(name) >= 0 : /^Other practised line/.test(name); }
   var LAYERS = [["none", "No layer"], ["total", "Time lost: total"], ["depth", "…from depth"], ["current", "…from current"], ["wind", "…from wind"],
                 ["depth_m", "Depth"], ["current_ms", "Current"], ["wind_ms", "Wind felt"]];
   var LINE_COLORS = ["#2f6f9f", "#8a6bb0", "#6f9a2e", "#b5651d", "#0f8b8d", "#c2185b", "#5d4037", "#455a64"];
@@ -333,7 +336,7 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
       svg.appendChild(pl);
     });
     if (F && F.lines) F.lines.forEach(function(L, li){
-      if (li === 0 || state.lines.indexOf(L.name) < 0) return;
+      if (li === 0 || !lineOn(L.name)) return;
       var pl = S("polyline", {points: pts(L.points), fill: "none", stroke: LINE_COLORS[li % LINE_COLORS.length], "stroke-width": 12,
                               "stroke-dasharray": "40 22", "stroke-linecap": "round"});
       var tt = S("title", {}); tt.textContent = L.name + ": " + sgn(L.delta_s, 1) + " s against our line"; pl.appendChild(tt);
@@ -396,7 +399,7 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
         var tm = S("text", {x: k2.s, y: idx % 2 ? 60 : 110, "text-anchor": "middle", "class": "ml", "font-size": 60}); tm.textContent = k2.name; svg.appendChild(tm);
       });
       F.lines.forEach(function(L, li){
-        if (!L.offsets || li === 0 || state.lines.indexOf(L.name) < 0) return;
+        if (!L.offsets || li === 0 || !lineOn(L.name)) return;
         svg.appendChild(S("polyline", {points: F.stations.map(function(s, i){ return s + "," + Ys(L.offsets[i]); }).join(" "), fill: "none",
                                        stroke: LINE_COLORS[li % LINE_COLORS.length], "stroke-width": 12, "stroke-dasharray": "40 22"}));
       });
@@ -524,9 +527,9 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
       ["", "Line", "Total", "Dist.", "Depth", "Curr.", "Wind", "Turn"].forEach(function(h){ lh.appendChild(el("th", null, h)); }); lt.appendChild(lh);
       F.lines.forEach(function(L, li){
         var r = el("tr");
-        var cb = el("input"); cb.type = "checkbox"; cb.checked = li === 0 || state.lines.indexOf(L.name) >= 0; cb.disabled = li === 0;
+        var cb = el("input"); cb.type = "checkbox"; cb.checked = li === 0 || lineOn(L.name); cb.disabled = li === 0;
         cb.setAttribute("aria-label", "Show " + L.name);
-        cb.addEventListener("change", function(){ var k = state.lines.indexOf(L.name); if (cb.checked && k < 0) state.lines.push(L.name);
+        cb.addEventListener("change", function(){ if (!state.linesSet){ state.lines = F.lines.filter(function(x){ return lineOn(x.name); }).map(function(x){ return x.name; }); state.linesSet = true; } var k = state.lines.indexOf(L.name); if (cb.checked && k < 0) state.lines.push(L.name);
           if (!cb.checked && k >= 0) state.lines.splice(k, 1); save("lines", JSON.stringify(state.lines)); render(); });
         var td0 = el("td"); td0.appendChild(cb); r.appendChild(td0);
         var nm = el("td"); var swatch = el("i", "sw"); swatch.style.background = li === 0 ? "var(--accent)" : LINE_COLORS[li % LINE_COLORS.length];

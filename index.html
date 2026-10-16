@@ -38,6 +38,7 @@ body{background:var(--paper);color:var(--ink);font-family:"Barlow",system-ui,-ap
 .crews{display:grid;grid-template-columns:1fr 1fr;gap:4px;background:var(--seg);border-radius:12px;padding:4px}
 .crews button{font:inherit;font-weight:600;font-size:15px;border:0;border-radius:9px;padding:9px 8px;background:transparent;color:var(--muted);cursor:pointer}
 .crews button[aria-pressed="true"]{background:var(--card);color:var(--ink);box-shadow:var(--shadow)}
+.crews[hidden]{display:none}
 .picker{display:grid;gap:4px;background:var(--seg);border-radius:12px;padding:4px;position:sticky;top:8px;z-index:2;box-shadow:var(--shadow)}
 .picker button{font:inherit;font-weight:600;font-size:14px;border:0;border-radius:9px;padding:9px 4px;background:transparent;color:var(--muted);cursor:pointer;white-space:nowrap}
 .picker button[aria-pressed="true"]{background:var(--accent);color:var(--card)}
@@ -157,6 +158,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     <button type="button" data-course="full" aria-pressed="true">Full course</button>
     <button type="button" data-course="short" aria-pressed="false">Short (high wind)</button>
   </div>
+  <div class="crews arches" role="group" aria-label="Arches at River Street and Western Avenue" hidden></div>
   <div class="crews gusts" role="group" aria-label="Gusts">
     <button type="button" data-gust="off" aria-pressed="true">Steady wind</button>
     <button type="button" data-gust="on" aria-pressed="false">Count gusts</button>
@@ -231,14 +233,48 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
         ["splits_", "at_landmark_", "rudder_"].forEach(function(n){ if (t[n + k]) t[n + k] = t[n + k].map(function(x){ return x * f; }); });
       });
     });
+    if (c.line_s) c.line_s *= f;
     c.gust_counted = true;
     return c;
   }
 
+  // the arch plans practised: the crew's own card under cards[crew], the other under cards[crew + "|" + key]
+  function variants(){
+    return Object.keys(cards).filter(function(k){ return (k === crew || k.indexOf(crew + "|") === 0) && cards[k] && cards[k].arch_option; })
+                 .sort(function(a, b){ return cards[a].arch_option.key < cards[b].arch_option.key ? -1 : 1; });
+  }
+  function variantKey(){
+    var pick = load("arches:" + crew);
+    return (pick && cards[crew + "|" + pick]) ? crew + "|" + pick : crew;
+  }
+  function archBar(){
+    var bar = document.querySelector(".arches"); if (!bar) return;
+    var vs = variants(), cur = variantKey();
+    bar.textContent = ""; bar.hidden = vs.length < 2;
+    if (vs.length < 2) return;
+    vs.forEach(function(k){
+      var o = cards[k].arch_option, b = el("button", null, (o.key === "cambridge" ? "Cambridge arches" : "Centre arches") + (o.own ? " · plan" : ""));
+      b.type = "button"; b.setAttribute("aria-pressed", k === cur ? "true" : "false");
+      b.title = o.name + "; centre at Weeks";
+      b.addEventListener("click", function(){ save("arches:" + crew, o.key); render(); });
+      bar.appendChild(b);
+    });
+  }
+  function archNote(full){                         // today's difference between the two practised lines
+    var vs = variants(); if (vs.length < 2) return null;
+    var t = vs.map(function(k){ var c = cards[k]; return {name: c.arch_option.key === "cambridge" ? "Cambridge" : "Centre", s: c.line_s}; });
+    if (!(t[0].s > 0 && t[1].s > 0)) return null;
+    var d = t[1].s - t[0].s, fast = d > 0 ? t[0].name : t[1].name, slow = d > 0 ? t[1].name : t[0].name;
+    return Math.abs(d) < 0.5 ? "Today the two lines are level (within half a second)."
+         : "Today " + fast + " arches are " + Math.abs(d).toFixed(1) + " s quicker than " + slow + " (both with the centre at Weeks; the model's precision here is about 2 s).";
+  }
+
   function render(){
-    var card = cards[crew], gu = card ? card.gust : null;
+    archBar();
+    var full = cards[variantKey()], card = full, gu = card ? card.gust : null;
     if (card && course === "short") card = card.short_card || null;
     if (gusts) card = withGusts(card, gu);
+    var an = archNote(full);
     document.querySelectorAll(".gusts button").forEach(function(b){
       b.setAttribute("aria-pressed", (b.getAttribute("data-gust") === "on") === gusts ? "true" : "false");
     });
@@ -267,7 +303,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     var mins = age(card.generated_at);
     var fresh = el("div", "fresh");
     fresh.appendChild(el("span", "dot" + (mins == null ? "" : mins > 360 ? " old" : mins > 90 ? " stale" : "")));
-    fresh.appendChild(document.createTextNode("Updated " + when(card.generated_at) + (sources[crew] === "saved" ? " · saved copy (no connection)" : "")));
+    fresh.appendChild(document.createTextNode("Updated " + when(card.generated_at) + ((sources[variantKey()] || sources[crew]) === "saved" ? " · saved copy (no connection)" : "")));
     head.appendChild(fresh);
     app.appendChild(head);
 
@@ -323,6 +359,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
       cur.do.forEach(function(x){ ul.appendChild(el("li", null, x)); });
       pc.appendChild(ul);
       pc.appendChild(el("p", "hint", "Drafted from the analysis; the wording is the coxswain's to change."));
+      if (an || card.arch_option) pc.appendChild(el("p", "hint", (card.arch_option ? "Splits and landmarks on this card: " + card.arch_option.name + ", centre at Weeks. " : "") + (an || "")));
       app.appendChild(pc);
     }
 
@@ -723,6 +760,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     c.conditions = wx;
     c.wind = calm ? null : {speed: wx.speed, direction: wx.direction};
     c.wind_factor = w.factor; c.wind_cost_pct = 100 * (w.factor - 1);
+    c.line_s = T.still_air_s ? T.still_air_s * w.factor : null;     // this line today at our pace (river below)
     c.gust = null;
     if (!calm && wx.gust > wx.speed){
       var wg = interpGusts(T, wx.speed, wx.direction, wx.gust), gI = gustIntensity(wx.speed, wx.gust);
@@ -765,6 +803,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
         });
       });
     }
+    if (c.line_s) c.line_s *= (day ? day.factor / w.factor : 1) * (c.river && !day ? c.river.factor : 1);
     c.course = {name: "full", start: "Start", start_m: 0, length_m: path, share: 1};
     if (cd.card.short_card) c.short_card = shortOf(c, cd.card.short_card);
     var C = (c.plan && c.plan.variants || []).filter(function(v){ return v.letter === "C"; })[0];
@@ -789,6 +828,11 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
         var rv = rivers[cd.card.race_start] || (rivers[cd.card.race_start] = await riverAt(cd.card.race_start));
         cards[k] = buildCard(cd, wx, flow, rv); sources[k] = "live";
         save(k, JSON.stringify(cards[k]));
+        (cd.alts || []).forEach(function(a){
+          var ak = k + "|" + a.key;
+          cards[ak] = buildCard({card: a.card, wind: a.wind, flow: a.flow, level: cd.level}, wx, flow, rv); sources[ak] = "live";
+          save(ak, JSON.stringify(cards[ak]));
+        });
       } catch (e) {
         if (!cards[k]) { cards[k] = buildCard(cd, {kind: "no weather (offline): still air", speed: 0, direction: NaN}, flow); sources[k] = "saved"; }
       }
@@ -847,7 +891,9 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     b.addEventListener("click", function(){ gusts = b.getAttribute("data-gust") === "on"; save("gusts", gusts ? "on" : "off"); render(); });
   });
   CREWS.forEach(function(k){
-    try { var s = JSON.parse(load(k) || "null"); if (s && s.targets) { cards[k] = s; sources[k] = "saved"; } } catch (e) {}
+    [k, k + "|cambridge", k + "|centre"].forEach(function(kk){
+      try { var s = JSON.parse(load(kk) || "null"); if (s && s.targets) { cards[kk] = s; sources[kk] = "saved"; } } catch (e) {}
+    });
   });
   (async function(){
     var pass = load("pass");
