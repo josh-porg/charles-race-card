@@ -157,6 +157,10 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     <button type="button" data-course="full" aria-pressed="true">Full course</button>
     <button type="button" data-course="short" aria-pressed="false">Short (high wind)</button>
   </div>
+  <div class="crews gusts" role="group" aria-label="Gusts">
+    <button type="button" data-gust="off" aria-pressed="true">Steady wind</button>
+    <button type="button" data-gust="on" aria-pressed="false">Count gusts</button>
+  </div>
   <div id="app" style="display:flex;flex-direction:column;gap:14px">
     <div class="empty">Loading the race card…</div>
   </div>
@@ -170,6 +174,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
   var cards = {}, sources = {};
   var crew = load("crew") || "four";
   var course = load("course") === "short" ? "short" : "full";
+  var gusts = load("gusts") === "on";
   if (CREWS.indexOf(crew) < 0) crew = "four";
 
   function load(k){ try { return localStorage.getItem(PREFIX + k); } catch (e) { return null; } }
@@ -215,9 +220,28 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
   function range(a, b){ return fmt(a) + "–" + fmt(b); }
   function short(name){ return {"beat 2025": "Last year"}[name] || cap(name); }
 
+  // gusts: the card's targets are for the steady wind; counting gusts scales every time by the
+  // allowance (coxswain/raceday/gusts.py). A measured day factor already contains the gusts.
+  function withGusts(card, gu){
+    if (!card || !gu || !(gu.ratio > 1) || card.factor_source) return card;
+    var c = JSON.parse(JSON.stringify(card)), f = gu.ratio;
+    (c.targets || []).forEach(function(t){
+      ["central", "fast", "slow"].forEach(function(k){
+        ["today_", "split_overall_"].forEach(function(n){ if (t[n + k] != null) t[n + k] *= f; });
+        ["splits_", "at_landmark_", "rudder_"].forEach(function(n){ if (t[n + k]) t[n + k] = t[n + k].map(function(x){ return x * f; }); });
+      });
+    });
+    c.gust_counted = true;
+    return c;
+  }
+
   function render(){
-    var card = cards[crew];
+    var card = cards[crew], gu = card ? card.gust : null;
     if (card && course === "short") card = card.short_card || null;
+    if (gusts) card = withGusts(card, gu);
+    document.querySelectorAll(".gusts button").forEach(function(b){
+      b.setAttribute("aria-pressed", (b.getAttribute("data-gust") === "on") === gusts ? "true" : "false");
+    });
     document.querySelectorAll(".courses button").forEach(function(b){
       b.setAttribute("aria-pressed", b.getAttribute("data-course") === course ? "true" : "false");
     });
@@ -316,6 +340,7 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     var sub = [];
     if (c.kind) sub.push(c.kind);
     if (c.temperature_c != null) sub.push(Math.round(c.temperature_c) + "°C");
+    if (c.gust > 0) sub.push("gusts to " + Math.round(c.gust / 0.44704) + " mph");
     if (c.rain_pct) sub.push(Math.round(c.rain_pct) + "% rain");
     if (c.at) sub.push("at " + when(c.at));
     txt.appendChild(el("div", "sub", sub.join(" · ")));
@@ -333,6 +358,17 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
       }
       cost.appendChild(document.createTextNode(". Every crew pays it, so the targets already include it."));
       cc.appendChild(cost);
+    }
+    if (gu && gu.gust_ms > 0 && g){
+      var gc = el("div", "cost"), gmph = Math.round(gu.gust_ms / 0.44704);
+      var extra = card.gust_counted ? g.today_central * (1 - 1 / gu.ratio) : g.today_central * (gu.ratio - 1);
+      if (card.factor_source) gc.appendChild(document.createTextNode("Gusts to " + gmph + " mph are already in the measured river."));
+      else {
+        gc.appendChild(document.createTextNode("Gusts to " + gmph + " mph: " + (card.gust_counted ? "counted, " : "not counted; they would add ")));
+        gc.appendChild(el("b", "num", "+" + extra.toFixed(0) + " s"));
+        gc.appendChild(document.createTextNode((card.gust_counted ? " in the times above" : "") + ". The allowance is the gusts' extra drag only, not the steering they call for."));
+      }
+      cc.appendChild(gc);
     }
     if (card.day){
       var dr = el("div", "cost");
@@ -530,7 +566,24 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
   function celsius(p){ return p.temperature == null ? null : (p.temperatureUnit === "F" ? (p.temperature - 32) * 5 / 9 : p.temperature); }
   async function getJSON(u){ var r = await fetch(u, {headers: {Accept: "application/geo+json"}}); if (!r.ok) throw new Error(r.status); return r.json(); }
 
+  function isoSpan(v){                          // "2026-10-17T14:00:00+00:00/PT3H" -> [start, end] in ms
+    var p = v.split("/"), t0 = Date.parse(p[0]), m = /P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?/.exec(p[1] || "") || [];
+    return [t0, t0 + (((+m[1] || 0) * 24 + (+m[2] || 0)) * 60 + (+m[3] || 0)) * 60e3];
+  }
+  async function gustAt(t){                     // the hourly forecast leaves gusts empty; the grid has them (km/h)
+    try {
+      var pts = await getJSON("https://api.weather.gov/points/" + POINT);
+      var vals = (await getJSON(pts.properties.forecastGridData)).properties.windGust.values;
+      for (var i = 0; i < vals.length; i++){ var se = isoSpan(vals[i].validTime); if (se[0] <= t && t < se[1] && vals[i].value != null) return vals[i].value / 3.6; }
+    } catch (e) {}
+    return null;
+  }
   async function weatherAt(startIso){
+    var wx = await weatherOnly(startIso);
+    if (/^forecast/.test(wx.kind || "") && !(wx.gust > 0)) wx.gust = await gustAt(Date.parse(startIso));
+    return wx;
+  }
+  async function weatherOnly(startIso){
     var t = Date.parse(startIso), pts = await getJSON("https://api.weather.gov/points/" + POINT);
     try {
       var hr = (await getJSON(pts.properties.forecastHourly)).properties.periods;
@@ -551,7 +604,8 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     } catch (e) {}
     var o = (await getJSON("https://api.weather.gov/stations/KBOS/observations/latest")).properties;
     return {kind: "observed now at Logan (race-time forecast not yet in range)", speed: (o.windSpeed.value || 0) / 3.6,
-            direction: o.windDirection.value, temperature_c: o.temperature.value, at: o.timestamp};
+            direction: o.windDirection.value, temperature_c: o.temperature.value, at: o.timestamp,
+            gust: o.windGust && o.windGust.value != null ? o.windGust.value / 3.6 : null};
   }
   async function flowNow(){
     var d = await (await fetch(USGS)).json(), v = d.value.timeSeries[0].values[0].value;
@@ -612,6 +666,19 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     out.share = out.share.map(function(x){ return x / s; });
     return out;
   }
+  var PEAK_FACTOR = 3, GZ = [];                 // gusts: as coxswain/raceday/gusts.py
+  for (var gz = -3; gz <= 3.0001; gz += 0.25) GZ.push([gz, Math.exp(-0.5 * gz * gz)]);
+  function gustIntensity(speed, gust){ return (gust > speed && speed > 0.3) ? Math.min((gust / speed - 1) / PEAK_FACTOR, 0.5) : 0; }
+  function interpGusts(T, speed, dir, gust){
+    var sig = gustIntensity(speed, gust) * speed;
+    if (!(sig > 0)) return interp(T, speed, dir);
+    var tot = GZ.reduce(function(a, z){ return a + z[1]; }, 0);
+    var out = mix(GZ.map(function(z){ return [interp(T, Math.max(0, speed + sig * z[0]), dir), z[1] / tot]; }));
+    var S = T.speeds, h = S[1] - S[0], u = Math.min(Math.max(speed, S[0] + h), S[S.length - 1] - h);
+    var curv = (interp(T, u + h, dir).factor - 2 * interp(T, u, dir).factor + interp(T, u - h, dir).factor) / (h * h);
+    out.factor = interp(T, speed, dir).factor + 0.5 * curv * sig * sig;   // exact for a quadratic cost; see gusts.py
+    return out;
+  }
   function interp(T, speed, dir){
     var S = T.speeds, D = T.directions, n = D.length, v = Math.max(0, Math.min(speed || 0, S[S.length - 1]));
     var i = 0; while (i < S.length - 2 && v > S[i + 1]) i++;
@@ -650,6 +717,12 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
     c.conditions = wx;
     c.wind = calm ? null : {speed: wx.speed, direction: wx.direction};
     c.wind_factor = w.factor; c.wind_cost_pct = 100 * (w.factor - 1);
+    c.gust = null;
+    if (!calm && wx.gust > wx.speed){
+      var wg = interpGusts(T, wx.speed, wx.direction, wx.gust), gI = gustIntensity(wx.speed, wx.gust);
+      c.gust = {gust_ms: wx.gust, intensity: gI, sigma_ms: gI * wx.speed, ratio: wg.factor / w.factor,
+                wind_ratio: Math.abs(w.factor - 1) > 1e-6 ? (wg.factor - 1) / (w.factor - 1) : 1, added_s: (wg.factor - w.factor) * T.reference_s};
+    }
     c.wind_cost_pct_range = calm ? null : [100 * (interp(T, 0.7 * wx.speed, wx.direction).factor - 1), 100 * (interp(T, 1.3 * wx.speed, wx.direction).factor - 1)];
     var factor = w.factor, day = dayFactor();
     c.day = day; c.factor_source = null;
@@ -763,6 +836,9 @@ footer{font-size:12.5px;color:var(--muted);display:flex;flex-direction:column;ga
   });
   document.querySelectorAll(".courses button").forEach(function(b){
     b.addEventListener("click", function(){ course = b.getAttribute("data-course"); save("course", course); render(); });
+  });
+  document.querySelectorAll(".gusts button").forEach(function(b){
+    b.addEventListener("click", function(){ gusts = b.getAttribute("data-gust") === "on"; save("gusts", gusts ? "on" : "off"); render(); });
   });
   CREWS.forEach(function(k){
     try { var s = JSON.parse(load(k) || "null"); if (s && s.targets) { cards[k] = s; sources[k] = "saved"; } } catch (e) {}

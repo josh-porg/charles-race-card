@@ -63,7 +63,7 @@ main{display:grid;grid-template-columns:minmax(0,1.65fr) minmax(320px,1fr);min-h
 aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;border-left:1px solid var(--line)}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
 .card h2{font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);margin:0 0 8px;font-weight:600}
-.conds{display:grid;grid-template-columns:repeat(3,1fr);gap:10px}
+.conds{display:grid;grid-template-columns:repeat(2,1fr);gap:10px}
 .conds b{display:block;font-size:26px;line-height:1}
 .conds span{font-size:12.5px;color:var(--muted)}
 .bars{display:flex;flex-direction:column;gap:5px}
@@ -117,7 +117,8 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
   var NWM = "https://api.water.noaa.gov/nwps/v1/reaches/5868225/streamflow?series=";
   var LEVEL = "https://waterservices.usgs.gov/nwis/iv/?sites=01104715&parameterCd=00065&format=json&period=P1D", LEVEL_MEDIAN_FT = 107.32;
   var state = {crew: load("crew") || "four", course: load("course") === "short" ? "short" : "full", targets: load("targets") === "on", sel: null,
-               layer: load("layer") || "none", lines: JSON.parse(load("lines") || "[]"), view: load("view") === "straight" ? "straight" : "map"};
+               layer: load("layer") || "none", lines: JSON.parse(load("lines") || "[]"), view: load("view") === "straight" ? "straight" : "map",
+               gusts: load("gusts") === "on"};
   var LAYERS = [["none", "No layer"], ["total", "Time lost: total"], ["depth", "…from depth"], ["current", "…from current"], ["wind", "…from wind"],
                 ["depth_m", "Depth"], ["current_ms", "Current"], ["wind_ms", "Wind felt"]];
   var LINE_COLORS = ["#2f6f9f", "#8a6bb0", "#6f9a2e", "#b5651d", "#0f8b8d", "#c2185b", "#5d4037", "#455a64"];
@@ -147,7 +148,22 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
   }
   function nums(t){ return ((t || "").match(/\d+(\.\d+)?/g) || []).map(Number); }
   async function getJSON(u){ var r = await fetch(u, {headers: {Accept: "application/geo+json"}}); if (!r.ok) throw new Error(r.status); return r.json(); }
+  function isoSpan(v){
+    var p = v.split("/"), t0 = Date.parse(p[0]), m = /P(?:(\d+)D)?(?:T(?:(\d+)H)?(?:(\d+)M)?)?/.exec(p[1] || "") || [];
+    return [t0, t0 + (((+m[1] || 0) * 24 + (+m[2] || 0)) * 60 + (+m[3] || 0)) * 60e3];
+  }
+  async function gustAt(t){
+    try { var pts = await getJSON("https://api.weather.gov/points/" + POINT);
+      var vals = (await getJSON(pts.properties.forecastGridData)).properties.windGust.values;
+      for (var i = 0; i < vals.length; i++){ var se = isoSpan(vals[i].validTime); if (se[0] <= t && t < se[1] && vals[i].value != null) return vals[i].value / 3.6; } } catch (e) {}
+    return null;
+  }
   async function weatherAt(iso){
+    var wx = await weatherOnly(iso);
+    if (/forecast/.test(wx.kind || "") && !(wx.gust > 0)) wx.gust = await gustAt(Date.parse(iso));
+    return wx;
+  }
+  async function weatherOnly(iso){
     var t = Date.parse(iso), pts = await getJSON("https://api.weather.gov/points/" + POINT);
     try { var hr = (await getJSON(pts.properties.forecastHourly)).properties.periods;
       for (var i = 0; i < hr.length; i++){ var p = hr[i]; if (Date.parse(p.startTime) <= t && t < Date.parse(p.endTime)) { var n = nums(p.windSpeed);
@@ -156,7 +172,8 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
       for (var j = 0; j < dy.length; j++){ var q = dy[j]; if (Date.parse(q.startTime) <= t && t < Date.parse(q.endTime)) { var m = nums(q.windSpeed);
         return {kind: "12-hour forecast (" + q.name + ")", speed: 0.5 * (Math.min.apply(null, m) + Math.max.apply(null, m)) * MPH, direction: COMPASS[q.windDirection], sky: q.shortForecast}; } } } catch (e) {}
     var o = (await getJSON("https://api.weather.gov/stations/KBOS/observations/latest")).properties;
-    return {kind: "observed now at Logan", speed: (o.windSpeed.value || 0) / 3.6, direction: o.windDirection.value, sky: o.textDescription};
+    return {kind: "observed now at Logan", speed: (o.windSpeed.value || 0) / 3.6, direction: o.windDirection.value, sky: o.textDescription,
+            gust: o.windGust && o.windGust.value != null ? o.windGust.value / 3.6 : null};
   }
   async function riverAt(iso){
     var t = Date.parse(iso), out = {};
@@ -177,6 +194,24 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     var s = out.share.reduce(function(a, b){ return a + b; }, 0); out.share = out.share.map(function(x){ return x / s; });
     return out;
   }
+  var PEAK_FACTOR = 3, GZ = [];                 // gusts: as coxswain/raceday/gusts.py
+  for (var gz = -3; gz <= 3.0001; gz += 0.25) GZ.push([gz, Math.exp(-0.5 * gz * gz)]);
+  function gustIntensity(speed, gust){ return (gust > speed && speed > 0.3) ? Math.min((gust / speed - 1) / PEAK_FACTOR, 0.5) : 0; }
+  function interpGusts(T, speed, dir, gust){
+    var sig = gustIntensity(speed, gust) * speed;
+    if (!(sig > 0)) return interp(T, speed, dir);
+    var tot = GZ.reduce(function(a, z){ return a + z[1]; }, 0);
+    var out = mix(GZ.map(function(z){ return [interp(T, Math.max(0, speed + sig * z[0]), dir), z[1] / tot]; }));
+    var S = T.speeds, h = S[1] - S[0], u = Math.min(Math.max(speed, S[0] + h), S[S.length - 1] - h);
+    var curv = (interp(T, u + h, dir).factor - 2 * interp(T, u, dir).factor + interp(T, u - h, dir).factor) / (h * h);
+    out.factor = interp(T, speed, dir).factor + 0.5 * curv * sig * sig;   // exact for a quadratic cost; see gusts.py
+    return out;
+  }
+  // a time-lost layer with the wind part scaled for gusts (k = gusty wind cost / steady wind cost)
+  function layerOf(F, key, k){
+    if (!(k > 1) || (key !== "wind" && key !== "total")) return F[key];
+    return F[key].map(function(row, a){ return row.map(function(v, b){ return key === "wind" ? v * k : v + (k - 1) * F.wind[a][b]; }); });
+  }
   function interp(T, speed, dir){
     var S = T.speeds, D = T.directions, n = D.length, v = Math.max(0, Math.min(speed || 0, S[S.length - 1]));
     var i = 0; while (i < S.length - 2 && v > S[i + 1]) i++;
@@ -194,6 +229,12 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     var wx = live.wx[card.race_start], rv = live.rv[card.race_start] || {};
     var calmish = !(wx && wx.speed > 0.3 && isFinite(wx.direction));
     var w = calmish ? interp(T, 0, 0) : interp(T, wx.speed, wx.direction), calm = interp(T, 0, 0);
+    var gust = null;
+    if (!calmish && wx.gust > wx.speed){
+      var wg = interpGusts(T, wx.speed, wx.direction, wx.gust);
+      gust = {ms: wx.gust, added: (wg.factor - w.factor) * ref, k: Math.abs(w.factor - 1) > 1e-6 ? (wg.factor - 1) / (w.factor - 1) : 1};
+      if (state.gusts) w = wg;
+    }
     var rows = (cd.analysis && cd.analysis.rows) || [];
     var qScale = (rv.cfs != null && cd.analysis) ? (rv.cfs * 0.0283168466) / cd.analysis.flow_m3s : 1;
     var i0 = state.course === "short" ? card.sections.findIndex(function(s){ return s.start === "Riverside BC"; }) : 0;
@@ -213,7 +254,8 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
       secs.forEach(function(s){ if (s.on){ cum += total * s.share; at[s.i] = {t: cum, split: total * s.share / s.metres * 500}; } });
       return {name: g.name, total: total * shareOn, at: at};
     });
-    return {card: card, wx: wx, rv: rv, secs: secs, goals: goals, flow_s: flow_s, level_s: level_s, i0: i0};
+    return {card: card, wx: wx, rv: rv, secs: secs, goals: goals, flow_s: flow_s, level_s: level_s, i0: i0,
+            gust: gust, k: state.gusts && gust ? gust.k : 1};
   }
 
   function render(){
@@ -235,6 +277,7 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     header.appendChild(segCtl("Course", [["full", "Full 4.8 km"], ["short", "Short (wind) 3.7 km"]], state.course, function(v){ state.course = v; save("course", v); render(); }));
     header.appendChild(segCtl("View", [["map", "Map"], ["straight", "Straightened"]], state.view, function(v){ state.view = v; view = null; save("view", v); render(); }));
     header.appendChild(segCtl("Targets", [["off", "Rowers' view"], ["on", "Coxswains' view"]], state.targets ? "on" : "off", function(v){ state.targets = v === "on"; save("targets", v); render(); }));
+    header.appendChild(segCtl("Gusts", [["off", "Steady wind"], ["on", "Count gusts"]], state.gusts ? "on" : "off", function(v){ state.gusts = v === "on"; save("gusts", v); render(); }));
     var lv = el("div", "live"); lv.appendChild(el("span", "dot")); lv.appendChild(el("span", null, "Live · " + (live.at ? live.at.toLocaleTimeString(undefined, {hour: "2-digit", minute: "2-digit"}) : "")));
     header.appendChild(lv);
     root.appendChild(header);
@@ -249,7 +292,7 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     var F = bundle.crews[state.crew].fields;
     var tip = el("div", "tip");
     if (F && state.layer !== "none" && F[state.layer]){
-      var g = S("g", {"class": "field"}), A = F[state.layer], X = F.x, Y = F.y, OK = F.ok;
+      var g = S("g", {"class": "field"}), A = layerOf(F, state.layer, m.k), X = F.x, Y = F.y, OK = F.ok;
       if (F.cmax == null){
         F.cmax = Math.max.apply(null, [].concat.apply([], F.current_ms).filter(isFinite));
         F.wmax = Math.max.apply(null, [].concat.apply([], F.wind_ms).filter(isFinite));
@@ -314,7 +357,7 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
       var bot = F.stations.map(function(s, i){ return s + "," + Ys(-F.half_width[i]); }).reverse();
       svg.appendChild(S("polygon", {points: top.concat(bot).join(" "), fill: "var(--water)"}));
       if (state.layer !== "none" && F[state.layer]){
-        var gs = S("g", {"class": "field"}), A2 = F[state.layer], O = F.offsets, ST = F.stations;
+        var gs = S("g", {"class": "field"}), A2 = layerOf(F, state.layer, m.k), O = F.offsets, ST = F.stations;
         for (var a2 = 0; a2 < A2.length - 1; a2++) for (var b2 = 0; b2 < A2[a2].length - 1; b2++){
           if (!(F.ok[a2][b2] && F.ok[a2 + 1][b2] && F.ok[a2][b2 + 1] && F.ok[a2 + 1][b2 + 1])) continue;
           var v2 = 0.25 * (A2[a2][b2] + A2[a2 + 1][b2] + A2[a2][b2 + 1] + A2[a2 + 1][b2 + 1]), col2 = layerColor(state.layer, v2, F);
@@ -392,7 +435,7 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
         lc.appendChild(sc);
         var what = {total: "Pace here against our line's pace at the same point: depth, current and wind together. Hover for numbers.",
                     depth: "What shallow water adds here, against our line.", current: "What the current adds here, against our line.",
-                    wind: "What the wind adds here, against our line (the wind forecast when the map was built).",
+                    wind: "What the wind adds here, against our line (the wind forecast when the map was built" + (m.k > 1 ? ", gusts counted" : "") + ").",
                     depth_m: "Depth below the normal pool.", current_ms: "Current against the boat at Saturday's forecast flow.",
                     wind_ms: "Wind felt at shoulder height, after the banks and trees (forecast when built)."}[state.layer];
         lc.appendChild(el("div", "sub", what));
@@ -423,7 +466,7 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     if (isFinite(wx.direction)) arrow.style.transform = "rotate(" + wx.direction + "deg)";
     wb.appendChild(arrow);
     var wt = el("div"); wt.appendChild(el("div", "big num", wx.speed != null ? Math.round(wx.speed / MPH) + " mph " + compass(wx.direction) : "–"));
-    wt.appendChild(el("div", "sub", wx.kind || "")); wb.appendChild(wt); box.appendChild(wb);
+    wt.appendChild(el("div", "sub", (wx.kind || "") + (wx.gust > 0 ? " · gusts " + Math.round(wx.gust / MPH) + " mph" : ""))); wb.appendChild(wt); box.appendChild(wb);
     var lg = el("div", "legend");
     [["headwind", "var(--head)"], ["cross", "var(--cross)"], ["tailwind", "var(--tail)"]].forEach(function(x){ var sp = el("span"); var i = el("i"); i.style.background = x[1]; sp.appendChild(i); sp.appendChild(document.createTextNode(x[0])); lg.appendChild(sp); });
     var sp2 = el("span", null, "wide grey: push here (shallows) · click a stretch"); lg.appendChild(sp2);
@@ -436,10 +479,13 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
     var conds = el("div", "conds");
     [[wx.speed != null ? Math.round(wx.speed / MPH) + " mph" : "–", "wind from " + compass(wx.direction)],
      [m.rv.cfs != null ? Math.round(m.rv.cfs) + " cfs" : "–", "river flow forecast (Oct median ~100)"],
+     [wx.gust > 0 ? Math.round(wx.gust / MPH) + " mph" : "–", "gusts (" + (state.gusts ? "counted" : "not counted") + ")"],
      [m.rv.level_ft != null ? sgn(m.rv.level_ft, 2) + " ft" : "–", "basin level on normal"]].forEach(function(c){
       var d = el("div"); d.appendChild(el("b", "num", c[0])); d.appendChild(el("span", null, c[1])); conds.appendChild(d); });
     c1.appendChild(conds);
     c1.appendChild(el("p", "sub", "Wind: National Weather Service for the start. Flow: National Water Model. Level: USGS at the dam. Every crew rows the same river within the hour."));
+    if (m.gust) c1.appendChild(el("p", "sub", "Gusts " + (state.gusts ? "add " : "would add ") + sgn(m.gust.added) + " s at our pace (the wind's cost ×" + m.gust.k.toFixed(2)
+      + "): the extra drag of the strong moments. Not in it: the steering they call for."));
     side.appendChild(c1);
 
     var on = m.secs.filter(function(s){ return s.on; });
@@ -481,9 +527,9 @@ aside{overflow:auto;padding:16px;display:flex;flex-direction:column;gap:14px;bor
         var td0 = el("td"); td0.appendChild(cb); r.appendChild(td0);
         var nm = el("td"); var swatch = el("i", "sw"); swatch.style.background = li === 0 ? "var(--accent)" : LINE_COLORS[li % LINE_COLORS.length];
         nm.appendChild(swatch); nm.appendChild(document.createTextNode(L.name)); r.appendChild(nm);
-        var d = L.delta;
-        [L.delta_s, d.distance, d.depth, d.current, d.wind, d.turning].forEach(function(v, k){
-          r.appendChild(el("td", "num" + (k === 0 ? " tot" : ""), li === 0 ? (k === 0 ? fmt(L.total_s) : "–") : sgn(v, 1))); });
+        var d = L.delta, kk = m.k - 1;
+        [L.delta_s + kk * d.wind, d.distance, d.depth, d.current, d.wind * m.k, d.turning].forEach(function(v, k){
+          r.appendChild(el("td", "num" + (k === 0 ? " tot" : ""), li === 0 ? (k === 0 ? fmt(L.total_s + kk * L.parts.wind) : "–") : sgn(v, 1))); });
         lt.appendChild(r);
       });
       cl.appendChild(lt);
