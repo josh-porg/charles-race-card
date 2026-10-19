@@ -167,11 +167,20 @@ function hex(c){ c = c.replace("#", ""); return [0, 2, 4].map(i => parseInt(c.su
 function mixHex(a, b, t){ const A = hex(a), B = hex(b); return "rgb(" + A.map((x, i) => Math.round(x + (B[i] - x) * t)).join(",") + ")"; }
 
 async function getJSON(url, opts){ const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
+function corrU(u, d){
+  const C = CFG && CFG.forecast_correction; if (!C || !(u > 0)) return u;
+  const x = (((d % 360) + 360) % 360) / 45, i = Math.floor(x) % 8, w = x - Math.floor(x);
+  const s = C.sectors[i] * (1 - w) + C.sectors[(i + 1) % 8] * w;
+  return C.k * s * Math.pow(u, C.beta);
+}
 async function loadWeather(){
   const q = "https://api.open-meteo.com/v1/forecast?latitude=" + POINTS.map(p => p[0]).join(",") + "&longitude=" + POINTS.map(p => p[1]).join(",")
     + "&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation_probability&models=gfs_seamless&wind_speed_unit=ms&timezone=America%2FLos_Angeles&forecast_days=3&past_days=1";
   const d = await getJSON(q);
   const arr = Array.isArray(d) ? d : [d];
+  // the lake's own calibration: the forecast as the open water gets it (a buoy's years of wind), when the lake has one
+  arr.forEach(p => { const h = p.hourly; h.wind_speed_10m = h.wind_speed_10m.map((u, i) => { const c = corrU(u, h.wind_direction_10m[i]);
+      h.wind_gusts_10m[i] = h.wind_gusts_10m[i] * (u > 0.1 ? c / u : 1); return c; }); });
   HIST = arr.map(p => ({time: p.hourly.time.map(t => new Date(t).getTime()), speed: p.hourly.wind_speed_10m, dir: p.hourly.wind_direction_10m, gust: p.hourly.wind_gusts_10m}));
   const now = new Date(), t0 = arr[0].hourly.time.findIndex(t => new Date(t) >= new Date(now.getTime() - 3600e3));
   return arr.map(p => ({time: p.hourly.time.slice(t0, t0 + 48), speed: p.hourly.wind_speed_10m.slice(t0, t0 + 48), dir: p.hourly.wind_direction_10m.slice(t0, t0 + 48),
@@ -194,11 +203,12 @@ let CAL = null, NOW = null, useLive = true, WXRAW = null;
 async function loadStations(){
   try {
     const d = await getJSON(RELAY + "?t=" + Math.floor(Date.now() / 300000), {cache: "no-store"});
-    return Object.entries(d.stations).map(([id, s]) => ({id, name: s.name, lat: s.lat, lon: s.lon, via: "relay",
-      obs: s.obs.map(o => ({t: Date.parse(o[0]), speed: o[1] * 0.44704, dir: o[2], gust: o[3] * 0.44704})).sort((x, y) => y.t - x.t)}));
+    return Object.entries(d.stations).map(([id, s]) => ({id, name: s.name, lat: s.lat, lon: s.lon, via: "relay", source: s.source || "cwop",
+      obs: s.obs.map(o => ({t: Date.parse(o[0]), speed: o[1] * 0.44704, dir: o[2], gust: o[3] == null ? null : o[3] * 0.44704})).sort((x, y) => y.t - x.t)}));
   } catch (e) {}
   const out = [];
   for (const st of STATIONS){
+    if (!st.nws) continue;
     try {
       const d = await getJSON("https://api.weather.gov/stations/" + st.nws + "/observations?limit=12", {headers: {Accept: "application/geo+json"}});
       const obs = d.features.map(f => f.properties).filter(p => p.windSpeed && p.windSpeed.value != null)
@@ -228,7 +238,8 @@ function nowcast(list){
   list.forEach(st => {
     const c = CAL.stations[st.id], w = (CAL.weights || {})[st.id] || 0;
     if (!c || !w || !st.obs.length || st.via !== "relay") return;
-    const recent = st.obs.filter(o => now - o.t < 65 * 60000); if (recent.length < 2) return;
+    const hourly = st.source === "kingcounty" || /buoy/i.test(st.name);
+    const recent = st.obs.filter(o => now - o.t < (hourly ? 150 : 65) * 60000); if (recent.length < (hourly ? 1 : 2)) return;
     const fc = forecastAt(st.lat, st.lon, now), fd = forecastAt(st.lat, st.lon, now, "dir");
     if (fc == null || fc < CAL.min_forecast_ms) return;
     const expct = c.siting * pick(c.factor16, fd) * fc, obs = recent.reduce((a, b) => a + b.speed, 0) / recent.length;
@@ -257,13 +268,13 @@ function renderStations(list){
   list.forEach(st => {
     const tr = el("tr"); tr.appendChild(el("td", null, st.name));
     if (!st.obs.length){ const td = el("td", "note", st.error ? "not reachable" : "no recent wind reports"); td.colSpan = 6; tr.appendChild(td); t.appendChild(tr); return; }
-    const o = st.obs[0], recent = st.obs.filter(x => o.t - x.t < 65 * 60000), mean = recent.reduce((a, b) => a + b.speed, 0) / recent.length;
+    const o = st.obs[0], recent = st.obs.filter(x => o.t - x.t < (st.source === "kingcounty" ? 5 : 65) * 60000), mean = recent.reduce((a, b) => a + b.speed, 0) / recent.length;
     const c = CAL && CAL.stations[st.id], fc = forecastAt(st.lat, st.lon, o.t), fd = forecastAt(st.lat, st.lon, o.t, "dir");
     const expct = c && fc != null ? c.siting * pick(c.factor16, fd) * fc : null;
     const ago = Math.round((Date.now() - o.t) / 60000);
     tr.appendChild(el("td", "n", ago < 90 ? ago + " min ago" : (ago / 60).toFixed(1) + " h ago"));
     tr.appendChild(el("td", "n", Math.round(mean * MS_MPH) + " mph"));
-    const gs = recent.map(x => x.gust).filter(x => x != null); tr.appendChild(el("td", "n", gs.length ? Math.round(Math.max(...gs) * MS_MPH) + " mph" : "–"));
+    const gs = recent.map(x => x.gust).filter(x => x != null && isFinite(x)); tr.appendChild(el("td", "n", gs.length ? Math.round(Math.max(...gs) * MS_MPH) + " mph" : "–"));
     tr.appendChild(el("td", null, o.dir != null && o.speed > 0.3 ? compass(o.dir) : "calm"));
     tr.appendChild(el("td", "n", expct != null ? (expct * MS_MPH).toFixed(1) + " mph" : "–"));
     tr.appendChild(el("td", "n", expct != null && fc >= (CAL ? CAL.min_forecast_ms : 2.5) ? Math.round(100 * mean / Math.max(expct, 0.2)) + "%" : "too light to say"));
@@ -285,6 +296,7 @@ function renderStations(list){
     p.textContent = "No live correction now: the wind is too light, or the stations have not reported in the last hour. The page shows the plain forecast.";
   }
   box.appendChild(p);
+  if (CAL && CAL.buoy) box.appendChild(el("p", "note", "The forecast on this page is corrected to the open water: King County's buoy measured the lake's wind for " + CAL.buoy.hours.toLocaleString() + " hours in 2023-2026. Tested on 2025-2026 after fitting on 2023-2024, the correction cut the wind error from " + CAL.buoy.raw_rms + " to " + CAL.buoy.rms + " m/s, and on windy hours from " + CAL.buoy.windy_raw + " to " + CAL.buoy.windy + " m/s. The buoy reports hourly, about an hour and a half late."));
   if (CAL) box.appendChild(el("p", "note", "Calibrated on " + CAL.station_hours + " windy hours at the lake-level stations, with each station's own exposure and the lake model's hill shelter (strength " + CAL.alpha + "); stations that did not improve the next hour carry no weight in the live correction."));
 }
 function hourLabel(h){ const t = new Date(WX[0].time[h]); return t.toLocaleString(undefined, {weekday: "short", hour: "numeric"}); }
@@ -379,7 +391,7 @@ async function start(){
   try {
     CFG = await getJSON("lake.json");
     POINTS = CFG.forecast_points; RELAY = CFG.relay;
-    STATIONS = CFG.stations.map(x => ({id: x.call, call: x.call, nws: x.nws, name: x.name, lat: x.lat, lon: x.lon}));
+    STATIONS = CFG.stations.map(x => ({id: x.call, call: x.call, nws: x.nws, name: x.name, lat: x.lat, lon: x.lon, source: x.source || "cwop"}));
     document.title = CFG.name + " Rowing Conditions";
     document.getElementById("eyebrow").textContent = CFG.name + " · " + CFG.place;
     document.getElementById("subtitle").textContent = CFG.subtitle;

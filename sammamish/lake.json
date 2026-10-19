@@ -58,7 +58,33 @@
    "lat": 47.583,
    "lon": -122.03867,
    "lake_level": false
+  },
+  {
+   "call": "KCSAMM",
+   "nws": null,
+   "source": "kingcounty",
+   "name": "King County buoy, open water (south half)",
+   "lat": 47.58167,
+   "lon": -122.09,
+   "lake_level": false
   }
  ],
- "notes": "The station at the south end (Issaquah) publishes no wind, and a Bellevue station has no wind sensor; three remain."
+ "notes": "The forecast is corrected to what King County's buoy measured on the open water in 2023-2026 (southerlies about 25% stronger on the lake than forecast, north-westerlies about 25% weaker). The station at the south end (Issaquah) publishes no wind, and a Bellevue station has no wind sensor.",
+ "forecast_correction": {
+  "source": "King County Lake Sammamish buoy 2023-2026, model M3",
+  "k": 1.4246,
+  "beta": 0.9397,
+  "sectors": [
+   0.895,
+   0.971,
+   0.996,
+   1.112,
+   1.255,
+   1.236,
+   0.935,
+   0.73
+  ],
+  "buoy_f": null
+ },
+ "alpha": 0.486
 }

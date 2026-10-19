@@ -1,20 +1,21 @@
 {
- "fitted": "2026-10-19T16:19-07:00",
+ "fitted": "2026-10-19T16:30-07:00",
  "alpha": 0.5,
  "tau_h": 3.0,
  "min_forecast_ms": 2.5,
- "station_hours": 31,
+ "station_hours": 72,
  "weights": {
   "GW8062": 0.0,
-  "GW1372": 0.28,
-  "EW8450": 0.287
+  "GW1372": 0.162,
+  "EW8450": 0.31,
+  "KCSAMM": 0.046
  },
  "stations": {
   "GW8062": {
-   "name": "North end, Redmond, near lake level",
+   "name": "Redmond, by the river 800 m north of the lake",
    "lat": 47.66067,
    "lon": -122.10567,
-   "siting": 0.647,
+   "siting": 0.428,
    "factor16": [
     0.737,
     0.678,
@@ -38,7 +39,7 @@
    "name": "West hill, Bellevue, 75 m above the lake",
    "lat": 47.60104,
    "lon": -122.13329,
-   "siting": 0.158,
+   "siting": 0.102,
    "factor16": [
     0.636,
     0.814,
@@ -62,7 +63,7 @@
    "name": "Sammamish plateau, east, 120 m above the lake",
    "lat": 47.583,
    "lon": -122.03867,
-   "siting": 0.28,
+   "siting": 0.191,
    "factor16": [
     0.452,
     0.479,
@@ -81,6 +82,37 @@
     0.536,
     0.44
    ]
+  },
+  "KCSAMM": {
+   "name": "King County buoy, open water (south half)",
+   "lat": 47.58167,
+   "lon": -122.09,
+   "siting": 0.889,
+   "factor16": [
+    1.0,
+    0.723,
+    0.633,
+    0.601,
+    0.673,
+    0.82,
+    1.0,
+    1.0,
+    0.894,
+    0.771,
+    0.784,
+    0.891,
+    0.903,
+    0.879,
+    0.937,
+    1.0
+   ]
   }
+ },
+ "buoy": {
+  "hours": 24440,
+  "raw_rms": 1.481,
+  "rms": 1.384,
+  "windy_raw": 2.04,
+  "windy": 1.75
  }
 }

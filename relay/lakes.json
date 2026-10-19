@@ -36,6 +36,12 @@
    "name": "Sammamish plateau, east, 120 m above the lake",
    "lat": 47.583,
    "lon": -122.03867
+  },
+  "KCSAMM": {
+   "name": "King County buoy, open water (south half)",
+   "lat": 47.58167,
+   "lon": -122.09,
+   "source": "kingcounty"
   }
  }
 }
