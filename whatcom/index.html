@@ -95,6 +95,10 @@ td.n{text-align:right;font-family:var(--mono)}
       <div class="legend"><span id="leglo">calm</span><span class="ramp" id="ramp"></span><span id="leghi">rough</span></div>
     </div>
   </div>
+  <div class="card" id="stations">
+    <h2>On the lake: weather stations</h2>
+    <p class="muted">Loading the lakeside stations…</p>
+  </div>
   <div class="card">
     <h2>The next 48 hours</h2>
     <p class="muted">Worst chop along each route, hour by hour. Tap an hour to see it on the map.</p>
@@ -103,7 +107,7 @@ td.n{text-align:right;font-family:var(--mono)}
   <div class="card" id="sections"></div>
   <div class="card">
     <h3>How this works, and what it does not know</h3>
-    <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and Bellingham airport's latest observation for comparison. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
+    <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and Bellingham airport's latest observation for comparison. Lakeside home weather stations (CWOP) for what the lake did earlier today; the National Weather Service passes them on about four hours late. Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
     <p class="note">Guide values for shells: under 10 cm smooth; 10 to 20 cm workable; 20 to 30 cm rough, experienced crews and bigger boats; over 30 cm or gusts over 30 mph, stay off in small boats. They are starting points, not rules: you know your boats and your crews.</p>
     <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Water temperature is not published live: from late autumn to spring the lake is cold enough to be the bigger risk, and there is no rescue service on the lake. Routes are traced from screenshots and approximate.</p>
   </div>
@@ -116,6 +120,14 @@ td.n{text-align:right;font-family:var(--mono)}
 const POINTS = [[48.757, -122.405], [48.735, -122.355], [48.703, -122.305]];      // north basin, middle, south (loop)
 const MS_MPH = 2.23694;
 const TH = [0.10, 0.20, 0.30];                                                  // chop guide values, m
+// citizen weather stations (CWOP) at the lake, through the National Weather Service; they arrive about 4 h late
+const STATIONS = [
+  {id: "D0884", name: "Agate Bay, lake level", lat: 48.76116, lon: -122.36255},
+  {id: "F1160", name: "North shore, middle basin, lake level", lat: 48.75083, lon: -122.3545},
+  {id: "F6124", name: "Geneva shore", lat: 48.745, lon: -122.3955},
+  {id: "E7158", name: "Sudden Valley hillside, 90 m above the lake", lat: 48.7035, lon: -122.32317}
+];
+let HIST = null;                                                                 // the forecast including the past day
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
 let M = null, WX = null, hour = 0, layer = "chop", map = null, cellLayer = null, routeLayers = [];
@@ -163,9 +175,10 @@ function mixHex(a, b, t){ const A = hex(a), B = hex(b); return "rgb(" + A.map((x
 async function getJSON(url, opts){ const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
 async function loadWeather(){
   const q = "https://api.open-meteo.com/v1/forecast?latitude=" + POINTS.map(p => p[0]).join(",") + "&longitude=" + POINTS.map(p => p[1]).join(",")
-    + "&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation_probability&models=gfs_seamless&wind_speed_unit=ms&timezone=America%2FLos_Angeles&forecast_days=3";
+    + "&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation_probability&models=gfs_seamless&wind_speed_unit=ms&timezone=America%2FLos_Angeles&forecast_days=3&past_days=1";
   const d = await getJSON(q);
   const arr = Array.isArray(d) ? d : [d];
+  HIST = arr.map(p => ({time: p.hourly.time.map(t => new Date(t).getTime()), speed: p.hourly.wind_speed_10m, gust: p.hourly.wind_gusts_10m}));
   const now = new Date(), t0 = arr[0].hourly.time.findIndex(t => new Date(t) >= new Date(now.getTime() - 3600e3));
   return arr.map(p => ({time: p.hourly.time.slice(t0, t0 + 48), speed: p.hourly.wind_speed_10m.slice(t0, t0 + 48), dir: p.hourly.wind_direction_10m.slice(t0, t0 + 48),
                         gust: p.hourly.wind_gusts_10m.slice(t0, t0 + 48), temp: p.hourly.temperature_2m.slice(t0, t0 + 48), rain: p.hourly.precipitation_probability.slice(t0, t0 + 48)}));
@@ -180,6 +193,57 @@ async function loadAirport(){
   try { const o = (await getJSON("https://api.weather.gov/stations/KBLI/observations/latest", {headers: {Accept: "application/geo+json"}})).properties;
     return o.windSpeed.value == null ? null : {speed: o.windSpeed.value / 3.6, dir: o.windDirection.value, gust: o.windGust.value == null ? null : o.windGust.value / 3.6, at: o.timestamp};
   } catch (e) { return null; }
+}
+async function loadStations(){
+  const out = [];
+  for (const st of STATIONS){
+    try {
+      const d = await getJSON("https://api.weather.gov/stations/" + st.id + "/observations?limit=12", {headers: {Accept: "application/geo+json"}});
+      const obs = d.features.map(f => f.properties).filter(p => p.windSpeed && p.windSpeed.value != null)
+        .map(p => ({t: new Date(p.timestamp).getTime(), speed: p.windSpeed.value / 3.6, dir: p.windDirection ? p.windDirection.value : null,
+                    gust: p.windGust && p.windGust.value != null ? p.windGust.value / 3.6 : null}));
+      out.push(Object.assign({}, st, {obs}));
+    } catch (e) { out.push(Object.assign({}, st, {obs: [], error: true})); }
+  }
+  return out;
+}
+// the forecast's wind at a place and a past moment (the three points blended as for the map)
+function forecastAt(lat, lon, t){
+  if (!HIST) return null;
+  let sw = 0, s = 0;
+  HIST.forEach((p, k) => { let i = p.time.findIndex(x => x > t); if (i <= 0) return; const w0 = (t - p.time[i - 1]) / (p.time[i] - p.time[i - 1]);
+    const sp = p.speed[i - 1] * (1 - w0) + p.speed[i] * w0, dl = Math.hypot((lat - POINTS[k][0]) * 111, (lon - POINTS[k][1]) * 73.5) + 0.3, w = 1 / (dl * dl);
+    sw += w; s += w * sp; });
+  return sw ? s / sw : null;
+}
+function renderStations(list){
+  const box = document.getElementById("stations"); box.textContent = "";
+  box.appendChild(el("h2", null, "On the lake: weather stations"));
+  box.appendChild(el("p", "muted", "Home weather stations at the lakeside, as the National Weather Service relays them. They arrive about four hours late, so they show what the lake did earlier today, and how that compares with the forecast for the same hours."));
+  const tw = el("div", "tablewrap"), t = el("table"), hd = el("tr");
+  ["Station", "Latest", "Wind", "Gusts", "From", "Forecast then", "Lake vs forecast"].forEach(x => hd.appendChild(el("th", null, x))); t.appendChild(hd);
+  let num = 0, den = 0;
+  list.forEach(st => {
+    const tr = el("tr"); tr.appendChild(el("td", null, st.name));
+    if (!st.obs.length){ const td = el("td", "note", st.error ? "not reachable" : "no recent wind reports"); td.colSpan = 6; tr.appendChild(td); t.appendChild(tr); return; }
+    const o = st.obs[0], recent = st.obs.slice(0, 6), mean = recent.reduce((a, b) => a + b.speed, 0) / recent.length;
+    const fc = recent.map(x => forecastAt(st.lat, st.lon, x.t)).filter(x => x != null), fmean = fc.length ? fc.reduce((a, b) => a + b, 0) / fc.length : null;
+    const ago = Math.round((Date.now() - o.t) / 60000);
+    tr.appendChild(el("td", "n", ago < 90 ? ago + " min ago" : (ago / 60).toFixed(1) + " h ago"));
+    tr.appendChild(el("td", "n", Math.round(mean * MS_MPH) + " mph"));
+    const gs = recent.map(x => x.gust).filter(x => x != null); tr.appendChild(el("td", "n", gs.length ? Math.round(Math.max(...gs) * MS_MPH) + " mph" : "–"));
+    tr.appendChild(el("td", null, o.dir != null && o.speed > 0.3 ? compass(o.dir) : "calm"));
+    tr.appendChild(el("td", "n", fmean != null ? Math.round(fmean * MS_MPH) + " mph" : "–"));
+    tr.appendChild(el("td", "n", fmean != null && fmean > 1.5 ? Math.round(100 * mean / fmean) + "%" : "too light to say"));
+    if (fmean != null && fmean > 1.5 && !/hillside/.test(st.name)){ num += mean; den += fmean; }
+    t.appendChild(tr);
+    if (map) L.circleMarker([st.lat, st.lon], {radius: 6, color: css("--ink"), weight: 2, fillColor: css("--card"), fillOpacity: 1})
+                .bindTooltip(st.name + ": " + Math.round(mean * MS_MPH) + " mph, " + (ago < 90 ? ago + " min" : (ago / 60).toFixed(1) + " h") + " ago").addTo(map);
+  });
+  tw.appendChild(t); box.appendChild(tw);
+  box.appendChild(el("p", "note", den > 0
+    ? "Earlier today the lake-level stations read " + Math.round(100 * num / den) + "% of the forecast wind (home stations sit low and among trees, so they usually read under the open-water wind; watch how this compares from day to day)."
+    : "The wind has been too light for a fair comparison with the forecast today."));
 }
 function hourLabel(h){ const t = new Date(WX[0].time[h]); return t.toLocaleString(undefined, {weekday: "short", hour: "numeric"}); }
 
@@ -279,6 +343,7 @@ async function start(){
     document.getElementById("updated").textContent = "Forecast loaded " + new Date().toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"})
       + (ap ? " · Bellingham airport now " + Math.round(ap.speed * MS_MPH) + " mph " + (ap.dir != null ? "from " + compass(ap.dir) : "") + (ap.gust ? ", gusts " + Math.round(ap.gust * MS_MPH) : "") : "");
     setHour(0); loadAlerts();
+    loadStations().then(renderStations).catch(() => {});
   } catch (e) {
     document.getElementById("updated").textContent = "Could not load the forecast (" + e.message + "). Check the connection and reload.";
   }
