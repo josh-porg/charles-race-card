@@ -1,0 +1,215 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="robots" content="noindex,nofollow,noarchive,nosnippet,noimageindex">
+<meta name="referrer" content="no-referrer">
+<title>Race review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Saira+Condensed:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+
+/* A race debrief: result first, then the day, the line, the stretches and the replay; one column, wide figures */
+:root{
+  --bg:#f2f5f4; --card:#ffffff; --ink:#152126; --muted:#5b6b70; --line:#d6dfdd;
+  --river:#cfe2e6; --bank:#7d8f93; --ours:#e4572e; --best:#0e6b7d; --short:#8b8f99; --gain:#2e8b57; --loss:#c0392b;
+  --display:"Saira Condensed","Arial Narrow",sans-serif; --body:"Source Sans 3",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1719; --card:#162125; --ink:#e3ecee; --muted:#93a4a8; --line:#26353a;
+  --river:#1b3640; --bank:#5d7378; --ours:#ff7a4f; --best:#4fc0d4; --short:#9aa0aa; --gain:#5fc08a; --loss:#ef6b5e; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1719; --card:#162125; --ink:#e3ecee; --muted:#93a4a8; --line:#26353a;
+  --river:#1b3640; --bank:#5d7378; --ours:#ff7a4f; --best:#4fc0d4; --short:#9aa0aa; --gain:#5fc08a; --loss:#ef6b5e; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--ink);font:16px/1.55 var(--body);margin:0}
+.wrap{max-width:1040px;margin:0 auto;padding-inline:16px;padding-block:28px 64px;display:flex;flex-direction:column;gap:26px}
+h1,h2{font-family:var(--display);font-weight:700;letter-spacing:.01em;text-wrap:balance;margin:0}
+h1{font-size:clamp(34px,6vw,54px);line-height:1}
+h2{font-size:28px;line-height:1.1}
+.eyebrow{font:600 13px var(--body);letter-spacing:.12em;text-transform:uppercase;color:var(--muted)}
+p{margin:0;max-width:68ch}
+.muted{color:var(--muted)}
+.num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+section{display:flex;flex-direction:column;gap:12px}
+.result{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:1px;background:var(--line);border:1px solid var(--line);border-radius:12px;overflow:hidden}
+.result div{background:var(--card);padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+.result b{font:600 30px/1.05 var(--display)}
+.result span{font-size:13px;color:var(--muted)}
+@media (max-width:720px){.result{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.panel{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14.5px}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+td.n{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.grid2{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(0,1fr);gap:16px}
+@media (max-width:820px){.grid2{grid-template-columns:1fr}}
+svg{display:block;width:100%;height:auto}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:13px;color:var(--muted)}
+.legend i{display:inline-block;width:20px;height:0;border-top:3px solid;vertical-align:middle;margin-right:6px}
+.bar{position:relative;height:10px;background:var(--line);border-radius:3px;min-width:80px}
+.bar span{position:absolute;top:0;bottom:0;border-radius:3px}
+.bar .mid{position:absolute;left:50%;top:-3px;bottom:-3px;border-left:1px solid var(--muted)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font:600 12.5px var(--body);padding:3px 9px;border-radius:999px;background:var(--river);color:var(--ink)}
+/* replay */
+.replay{display:flex;flex-direction:column;gap:10px}
+.stage{position:relative;background:var(--river);border-radius:10px;overflow:hidden;aspect-ratio:4/3;max-width:100%}
+.stage canvas{position:absolute;inset:0;width:100%;height:100%}
+.hud{position:absolute;left:10px;top:10px;background:color-mix(in srgb,var(--card) 88%,transparent);border-radius:8px;padding:8px 12px;display:grid;grid-template-columns:auto auto;gap:2px 14px;font-size:13px}
+.hud b{font:600 20px/1.1 var(--display)}
+.controls{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+button,select{font:600 14px var(--body);border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:7px 12px;cursor:pointer}
+button[aria-pressed="true"]{background:var(--ink);color:var(--card)}
+button:focus-visible,select:focus-visible,input:focus-visible{outline:2px solid var(--best);outline-offset:2px}
+input[type=range]{flex:1;min-width:160px;accent-color:var(--ours)}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
+
+.lock{max-width:420px;margin:12vh auto 0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:12px}
+.lock input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
+.lock .err{color:var(--loss);font-size:14px;min-height:1.2em}
+</style>
+</head>
+<body>
+<div id="root"><div class="wrap">
+  <form class="lock" id="lock" autocomplete="off">
+    <div class="eyebrow">Private</div>
+    <h2>Race review</h2>
+    <p class="muted">Enter the coxswains' password to open it.</p>
+    <input id="pass" type="password" aria-label="Password" placeholder="password" autocomplete="current-password">
+    <button type="submit" id="go">Open</button>
+    <div class="err" id="err" role="status"></div>
+  </form>
+</div></div>
+<script>
+async function openReview(pass){
+  const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const enc = await (await fetch("review.enc", {cache: "no-cache"})).json();
+  const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({name: "PBKDF2", salt: b64(enc.salt), iterations: enc.iterations, hash: "SHA-256"},
+                                            km, {name: "AES-GCM", length: 256}, false, ["decrypt"]);
+  const pt = await crypto.subtle.decrypt({name: "AES-GCM", iv: b64(enc.iv)}, key, b64(enc.data));
+  return JSON.parse(new TextDecoder().decode(pt));
+}
+function start(D){
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const fmt = s => { if (s == null || !isFinite(s)) return "–"; s = Math.round(s * 10) / 10; const m = Math.floor(s / 60), r = s - 60 * m; return m + ":" + (r < 10 ? "0" : "") + r.toFixed(1); };
+const NS = "http://www.w3.org/2000/svg";
+function S(tag, a){ const e = document.createElementNS(NS, tag); for (const k in a) e.setAttribute(k, a[k]); return e; }
+
+// ---- map ----
+(function(){
+  const svg = document.getElementById("map"), W = D.map.w, H = D.map.h;
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  const P = a => a.map(p => p[0] + "," + (H - p[1])).join(" ");
+  D.map.banks.forEach(b => svg.appendChild(S("polygon", {points: P(b), fill: "var(--river)", stroke: "var(--bank)", "stroke-width": 6})));
+  D.map.bridges.forEach(b => svg.appendChild(S("line", {x1: b.a[0], y1: H - b.a[1], x2: b.b[0], y2: H - b.b[1], stroke: "var(--ink)", "stroke-width": 16, opacity: .55})));
+  svg.appendChild(S("polyline", {points: P(D.shortest), fill: "none", stroke: "var(--short)", "stroke-width": 7, "stroke-dasharray": "4 12", "stroke-linecap": "round"}));
+  svg.appendChild(S("polyline", {points: P(D.best), fill: "none", stroke: "var(--best)", "stroke-width": 9, "stroke-dasharray": "26 14"}));
+  svg.appendChild(S("polyline", {points: P(D.track.x.map((x, i) => [x, D.track.y[i]])), fill: "none", stroke: "var(--ours)", "stroke-width": 9, "stroke-linejoin": "round"}));
+  D.map.marks.filter(m => /Mile|Big turn|Powerhouse|Finish|Eliot|Weeks/.test(m.name)).forEach(m => {
+    svg.appendChild(S("circle", {cx: m.xy[0], cy: H - m.xy[1], r: 16, fill: "var(--card)", stroke: "var(--ink)", "stroke-width": 5}));
+    const t = S("text", {x: m.xy[0] + 30, y: H - m.xy[1] + 18, "font-size": 58, "font-family": "var(--body)", fill: "var(--ink)", "font-weight": 600});
+    t.textContent = m.name.replace(" Footbridge", "").replace(" Bridge", ""); svg.appendChild(t);
+  });
+})();
+
+// ---- straightened offsets ----
+(function(){
+  const svg = document.getElementById("offsets"), O = D.offsets, W = 1000, H = 260, L = Math.max(...O.st), pad = 34;
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  const X = s => pad + (W - 2 * pad) * s / L, Y = o => H / 2 - o * 1.9;
+  svg.appendChild(S("rect", {x: pad, y: Y(60), width: W - 2 * pad, height: Y(-60) - Y(60), fill: "var(--river)"}));
+  svg.appendChild(S("line", {x1: pad, y1: Y(0), x2: W - pad, y2: Y(0), stroke: "var(--muted)", "stroke-dasharray": "4 6", "stroke-width": 1}));
+  O.bridges.forEach(b => { svg.appendChild(S("line", {x1: X(b.s), y1: Y(60), x2: X(b.s), y2: Y(-60), stroke: "var(--ink)", "stroke-width": 3, opacity: .4}));
+    const t = S("text", {x: X(b.s), y: H - 6, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)", "font-family": "var(--body)"});
+    t.textContent = b.name.replace(" Footbridge", "").replace(" Bridge", "").replace("Grand Junction RR", "Railway").replace("Larz ", ""); svg.appendChild(t); });
+  for (const [st, off, col, dash, w] of [[O.short_st, O.short, "var(--short)", "2 6", 2.5], [O.best_st, O.best, "var(--best)", "10 6", 3], [O.st, O.ours, "var(--ours)", "", 3]])
+    svg.appendChild(S("polyline", {points: st.map((s, i) => X(s) + "," + Y(off[i])).join(" "), fill: "none", stroke: col, "stroke-width": w, "stroke-dasharray": dash}));
+  for (const [lab, y] of [["port", Y(48)], ["starboard", Y(-52)]]) { const t = S("text", {x: pad + 4, y: y, "font-size": 12, fill: "var(--muted)", "font-family": "var(--body)"}); t.textContent = lab; svg.appendChild(t); }
+  for (let km = 0; km <= L; km += 1000) { const t = S("text", {x: X(km), y: 14, "text-anchor": "middle", "font-size": 12, fill: "var(--muted)", "font-family": "var(--mono)"}); t.textContent = (km / 1000) + " km"; svg.appendChild(t); }
+})();
+
+// ---- stretches ----
+(function(){
+  const tb = document.getElementById("stretches");
+  const resid = D.stretch.map(s => s.gps - s.model), mx = Math.max(...resid.map(Math.abs), 1);
+  D.stretch.forEach((s, i) => {
+    const tr = document.createElement("tr"), d = resid[i];
+    const cells = [s.name, Math.round(s.metres), fmt(s.gps), fmt(s.model), (d >= 0 ? "+" : "−") + Math.abs(d).toFixed(1), null, s.rate ? s.rate.toFixed(1) : "–", (s.model - s.best >= 0 ? "+" : "−") + Math.abs(s.model - s.best).toFixed(1)];
+    cells.forEach((c, j) => { const td = document.createElement("td"); if (j && j !== 5) td.className = "n";
+      if (j === 5) { const bar = document.createElement("div"); bar.className = "bar"; const sp = document.createElement("span");
+        const w = 50 * Math.abs(d) / mx; sp.style.width = w + "%"; sp.style.left = d < 0 ? (50 - w) + "%" : "50%"; sp.style.background = d < 0 ? "var(--gain)" : "var(--loss)";
+        const mid = document.createElement("i"); mid.className = "mid"; bar.appendChild(sp); bar.appendChild(mid); td.appendChild(bar); }
+      else td.textContent = c; tr.appendChild(td); });
+    tb.appendChild(tr);
+  });
+})();
+
+// ---- replay ----
+(function(){
+  const cv = document.getElementById("cv"), ctx = cv.getContext("2d"), T = D.track, N = T.t.length, tEnd = T.t[N - 1];
+  let t = 0, playing = false, follow = true, ghost = true, last = null, speed = 30;
+  const reduce = window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+  function size(){ const r = cv.getBoundingClientRect(), dpr = window.devicePixelRatio || 1; cv.width = r.width * dpr; cv.height = r.height * dpr; ctx.setTransform(dpr, 0, 0, dpr, 0, 0); draw(); }
+  function at(arrT, val, tt){ let i = 0; while (i < arrT.length - 2 && arrT[i + 1] < tt) i++; const w = Math.max(0, Math.min(1, (tt - arrT[i]) / ((arrT[i + 1] - arrT[i]) || 1))); return [i, w]; }
+  function pos(tt){ const [i, w] = at(T.t, null, tt); return [T.x[i] + (T.x[i + 1] - T.x[i]) * w, T.y[i] + (T.y[i + 1] - T.y[i]) * w, i]; }
+  function gpos(tt){ const G = D.ghost; if (tt >= G.t[G.t.length - 1]) return G.xy[G.xy.length - 1]; const [i, w] = at(G.t, null, tt); return [G.xy[i][0] + (G.xy[i + 1][0] - G.xy[i][0]) * w, G.xy[i][1] + (G.xy[i + 1][1] - G.xy[i][1]) * w]; }
+  function draw(){
+    const r = cv.getBoundingClientRect(), W = r.width, H = r.height; if (!W) return;
+    const [bx, by, bi] = pos(t);
+    let sc, cx, cy;
+    if (follow) { sc = Math.min(W, H) / 520; cx = bx; cy = by; } else { sc = Math.min(W / D.map.w, H / D.map.h) * 0.95; cx = D.map.w / 2; cy = D.map.h / 2; }
+    const X = x => W / 2 + (x - cx) * sc, Y = y => H / 2 - (y - cy) * sc;
+    ctx.fillStyle = css("--bank"); ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = css("--river"); D.map.banks.forEach(b => { ctx.beginPath(); b.forEach((p, k) => k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.closePath(); ctx.fill(); });
+    ctx.strokeStyle = css("--ink"); ctx.globalAlpha = .55; ctx.lineWidth = Math.max(2, 12 * sc);
+    D.map.bridges.forEach(b => { ctx.beginPath(); ctx.moveTo(X(b.a[0]), Y(b.a[1])); ctx.lineTo(X(b.b[0]), Y(b.b[1])); ctx.stroke(); }); ctx.globalAlpha = 1;
+    ctx.setLineDash([10, 7]); ctx.strokeStyle = css("--best"); ctx.lineWidth = 2; ctx.beginPath(); D.best.forEach((p, k) => k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.stroke(); ctx.setLineDash([]);
+    ctx.strokeStyle = css("--ours"); ctx.lineWidth = 3; ctx.beginPath();
+    for (let k = 0; k <= bi; k++) k ? ctx.lineTo(X(T.x[k]), Y(T.y[k])) : ctx.moveTo(X(T.x[k]), Y(T.y[k])); ctx.lineTo(X(bx), Y(by)); ctx.stroke();
+    if (ghost) { const g = gpos(t); ctx.fillStyle = css("--best"); ctx.globalAlpha = .8; ctx.beginPath(); ctx.arc(X(g[0]), Y(g[1]), 6, 0, 7); ctx.fill(); ctx.globalAlpha = 1; }
+    // our boat: a 13 m shell drawn along the heading
+    const k2 = Math.min(bi + 1, N - 1), hd = Math.atan2(T.y[k2] - T.y[Math.max(bi - 1, 0)], T.x[k2] - T.x[Math.max(bi - 1, 0)]);
+    const len = Math.max(13 * sc, 14);
+    ctx.save(); ctx.translate(X(bx), Y(by)); ctx.rotate(-hd); ctx.fillStyle = css("--ours"); ctx.beginPath();
+    ctx.moveTo(len / 2, 0); ctx.lineTo(-len / 2, -3); ctx.lineTo(-len / 2, 3); ctx.closePath(); ctx.fill(); ctx.restore();
+    const v = T.v[bi]; document.getElementById("hT").textContent = fmt(t);
+    document.getElementById("hS").textContent = v > 0.5 ? fmt(500 / v) : "–";
+    document.getElementById("hR").textContent = T.r[bi] ? T.r[bi].toFixed(0) : "–";
+    const gs = D.ghost.t, gEnd = gs[gs.length - 1];
+    // ghost lead in metres along the course: our station minus the ghost's station at this moment
+    const [gi, gw] = at(gs, null, Math.min(t, gEnd)); const gS = (gi + gw) / (gs.length - 1) * T.s[N - 1];
+    document.getElementById("hG").textContent = ghost ? ((T.s[bi] - gS >= 0 ? "+" : "−") + Math.abs(T.s[bi] - gS).toFixed(0) + " m") : "off";
+    document.getElementById("scrub").value = Math.round(1000 * t / tEnd);
+  }
+  function loop(ts){ if (!playing) return; if (last != null) t = Math.min(tEnd, t + (ts - last) / 1000 * speed); last = ts; draw();
+    if (t >= tEnd) { playing = false; setPlay(); return; } requestAnimationFrame(loop); }
+  function setPlay(){ const b = document.getElementById("play"); b.textContent = playing ? "Pause" : "Play"; b.setAttribute("aria-pressed", playing ? "true" : "false"); }
+  document.getElementById("play").onclick = () => { if (t >= tEnd) t = 0; playing = !playing; last = null; setPlay(); if (playing) requestAnimationFrame(loop); };
+  document.getElementById("speed").onchange = e => { speed = Number(e.target.value); };
+  document.getElementById("follow").onclick = e => { follow = !follow; e.target.setAttribute("aria-pressed", follow); draw(); };
+  document.getElementById("ghostbtn").onclick = e => { ghost = !ghost; e.target.setAttribute("aria-pressed", ghost); draw(); };
+  document.getElementById("scrub").oninput = e => { t = tEnd * Number(e.target.value) / 1000; draw(); };
+  window.addEventListener("resize", size); t = reduce ? 0 : 0; size();
+})();
+
+}
+document.getElementById("lock").addEventListener("submit", async e => {
+  e.preventDefault();
+  const go = document.getElementById("go"), err = document.getElementById("err");
+  go.disabled = true; go.textContent = "Opening…"; err.textContent = "";
+  try {
+    const p = await openReview(document.getElementById("pass").value.trim());
+    const root = document.getElementById("root"); root.innerHTML = p.html; document.title = p.title;
+    start(p.data);
+  } catch (x) {
+    go.disabled = false; go.textContent = "Open"; err.textContent = "That password did not open it. Check it and try again.";
+  }
+});
+</script>
+</body>
+</html>
