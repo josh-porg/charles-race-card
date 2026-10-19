@@ -105,7 +105,8 @@ function S(tag, a){ const e = document.createElementNS(NS, tag); for (const k in
   const svg = document.getElementById("map"), W = D.map.w, H = D.map.h;
   svg.setAttribute("viewBox", "0 0 " + W + " " + H);
   const P = a => a.map(p => p[0] + "," + (H - p[1])).join(" ");
-  D.map.banks.forEach(b => svg.appendChild(S("polygon", {points: P(b), fill: "var(--river)", stroke: "var(--bank)", "stroke-width": 6})));
+  svg.appendChild(S("polygon", {points: P(D.map.water), fill: "var(--river)", stroke: "none"}));
+  D.map.banks.forEach(b => svg.appendChild(S("polyline", {points: P(b), fill: "none", stroke: "var(--bank)", "stroke-width": 6})));
   D.map.bridges.forEach(b => svg.appendChild(S("line", {x1: b.a[0], y1: H - b.a[1], x2: b.b[0], y2: H - b.b[1], stroke: "var(--ink)", "stroke-width": 16, opacity: .55})));
   svg.appendChild(S("polyline", {points: P(D.shortest), fill: "none", stroke: "var(--short)", "stroke-width": 7, "stroke-dasharray": "4 12", "stroke-linecap": "round"}));
   svg.appendChild(S("polyline", {points: P(D.best), fill: "none", stroke: "var(--best)", "stroke-width": 9, "stroke-dasharray": "26 14"}));
@@ -165,7 +166,9 @@ function S(tag, a){ const e = document.createElementNS(NS, tag); for (const k in
     if (follow) { sc = Math.min(W, H) / 520; cx = bx; cy = by; } else { sc = Math.min(W / D.map.w, H / D.map.h) * 0.95; cx = D.map.w / 2; cy = D.map.h / 2; }
     const X = x => W / 2 + (x - cx) * sc, Y = y => H / 2 - (y - cy) * sc;
     ctx.fillStyle = css("--bank"); ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = css("--river"); D.map.banks.forEach(b => { ctx.beginPath(); b.forEach((p, k) => k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.closePath(); ctx.fill(); });
+    ctx.fillStyle = css("--river"); ctx.beginPath(); D.map.water.forEach((p, k) => k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.closePath(); ctx.fill();
+    ctx.strokeStyle = css("--ink"); ctx.globalAlpha = .35; ctx.lineWidth = 1.5;
+    D.map.banks.forEach(b => { ctx.beginPath(); b.forEach((p, k) => k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.stroke(); }); ctx.globalAlpha = 1;
     ctx.strokeStyle = css("--ink"); ctx.globalAlpha = .55; ctx.lineWidth = Math.max(2, 12 * sc);
     D.map.bridges.forEach(b => { ctx.beginPath(); ctx.moveTo(X(b.a[0]), Y(b.a[1])); ctx.lineTo(X(b.b[0]), Y(b.b[1])); ctx.stroke(); }); ctx.globalAlpha = 1;
     ctx.setLineDash([10, 7]); ctx.strokeStyle = css("--best"); ctx.lineWidth = 2; ctx.beginPath(); D.best.forEach((p, k) => k ? ctx.lineTo(X(p[0]), Y(p[1])) : ctx.moveTo(X(p[0]), Y(p[1]))); ctx.stroke(); ctx.setLineDash([]);
