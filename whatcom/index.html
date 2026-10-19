@@ -1,0 +1,295 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Lake Whatcom Rowing Conditions</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+/* A morning check for a long lake: verdict per route first, the map of where the water is rough, then the hours */
+:root{
+  --bg:#eef3f1; --card:#ffffff; --ink:#15231f; --muted:#5c6d68; --line:#d3ddd9; --lake:#9cc7d3;
+  --calm:#2e8b57; --ok:#c9a227; --rough:#d9732b; --off:#b8322a; --accent:#1f6f8b;
+  --display:"Archivo Narrow","Arial Narrow",sans-serif; --body:"Source Sans 3",system-ui,sans-serif; --mono:"JetBrains Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1715; --card:#16211e; --ink:#e2ece9; --muted:#93a6a0; --line:#25342f; --lake:#2a4c57;
+  --calm:#5fc08a; --ok:#e2c04f; --rough:#f0955a; --off:#ef6b5e; --accent:#5fb3cf; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#0f1715; --card:#16211e; --ink:#e2ece9; --muted:#93a6a0; --line:#25342f; --lake:#2a4c57;
+  --calm:#5fc08a; --ok:#e2c04f; --rough:#f0955a; --off:#ef6b5e; --accent:#5fb3cf; color-scheme:dark}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font:16px/1.5 var(--body)}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:16px;padding-block:22px 56px;display:flex;flex-direction:column;gap:18px}
+h1,h2,h3{font-family:var(--display);margin:0;text-wrap:balance;letter-spacing:.01em}
+h1{font-size:clamp(30px,5vw,44px);line-height:1.02}
+h2{font-size:24px} h3{font-size:19px}
+p{margin:0;max-width:70ch}
+.muted{color:var(--muted)} .num{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.top{display:flex;flex-wrap:wrap;gap:12px 24px;align-items:end;justify-content:space-between}
+.live{font-size:13px;color:var(--muted);display:flex;gap:8px;align-items:center}
+.live i{width:8px;height:8px;border-radius:50%;background:var(--calm);display:inline-block}
+.alerts{display:flex;flex-direction:column;gap:8px}
+.alert{background:var(--card);border:1px solid var(--off);border-left-width:5px;border-radius:10px;padding:10px 14px}
+.routes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+@media (max-width:760px){.routes{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.verdict{display:flex;gap:12px;align-items:center}
+.pill{font:600 14px var(--body);padding:3px 11px;border-radius:999px;color:#fff}
+.pill.calm{background:var(--calm)} .pill.ok{background:var(--ok);color:#1d1a08} .pill.rough{background:var(--rough)} .pill.off{background:var(--off)}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px}
+.stats b{display:block;font:600 24px/1.1 var(--display)} .stats span{font-size:12.5px;color:var(--muted)}
+.mapcard{padding:0;overflow:hidden}
+#map{height:min(70vh,620px);min-height:380px;background:var(--lake)}
+.mapbar{display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center;padding:12px 16px;border-top:1px solid var(--line)}
+.seg{display:inline-flex;background:var(--line);border-radius:9px;padding:3px;gap:3px}
+.seg button{font:600 14px var(--body);border:0;background:transparent;color:var(--muted);padding:6px 11px;border-radius:7px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--card);color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.time{display:flex;gap:10px;align-items:center;flex:1;min-width:240px}
+.time input{flex:1;accent-color:var(--accent)}
+.time b{font:600 16px var(--mono);white-space:nowrap}
+.legend{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--muted)}
+.legend .ramp{width:150px;height:9px;border-radius:5px}
+.hours{display:flex;gap:2px;overflow-x:auto;padding-bottom:4px}
+.hours div{flex:0 0 30px;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--muted);cursor:pointer}
+.hours div span{width:26px;border-radius:3px}
+.hours div.sel{color:var(--ink);font-weight:600}
+.tablewrap{overflow-x:auto}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{font:600 11.5px var(--body);letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+td.n{text-align:right;font-family:var(--mono)}
+.dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
+.note{font-size:13.5px;color:var(--muted)}
+.windbadge{position:absolute;right:12px;top:12px;z-index:500;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;display:flex;gap:10px;align-items:center}
+.windbadge svg{width:38px;height:38px;color:var(--accent)}
+.windbadge b{font:600 22px/1 var(--display);display:block}
+.leaflet-container{font:inherit}
+@media (prefers-reduced-motion:reduce){*{transition:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <div class="top">
+    <div style="display:flex;flex-direction:column;gap:6px">
+      <div class="muted" style="font:600 13px var(--body);letter-spacing:.12em;text-transform:uppercase">Lake Whatcom · Bellingham</div>
+      <h1>Rowing conditions</h1>
+      <p class="muted">Where the wind and chop are on the lake, hour by hour, for the North basin to Sudden Valley row and the Sudden Valley loop.</p>
+    </div>
+    <div class="live"><i></i><span id="updated">Loading the forecast…</span></div>
+  </div>
+  <div class="alerts" id="alerts"></div>
+  <div class="routes" id="routes"></div>
+  <div class="card mapcard">
+    <div style="position:relative"><div id="map" role="application" aria-label="Map of Lake Whatcom coloured by chop or wind"></div>
+      <div class="windbadge"><svg viewBox="0 0 24 24" aria-hidden="true" id="arrow"><path d="M12 3v15m0 0l-5-5m5 5l5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div><b class="num" id="wspd">–</b><span class="muted" id="wdir" style="font-size:12.5px">forecast</span></div></div></div>
+    <div class="mapbar">
+      <div class="seg" role="group" aria-label="Map layer"><button type="button" data-layer="chop" aria-pressed="true">Chop</button><button type="button" data-layer="wind" aria-pressed="false">Wind on the water</button></div>
+      <div class="time"><button type="button" id="now" class="seg" style="padding:6px 11px;border:0;font:600 14px var(--body);cursor:pointer">Now</button>
+        <input type="range" id="hour" min="0" max="47" value="0" aria-label="Forecast hour"><b id="hourlab">–</b></div>
+      <div class="legend"><span id="leglo">calm</span><span class="ramp" id="ramp"></span><span id="leghi">rough</span></div>
+    </div>
+  </div>
+  <div class="card">
+    <h2>The next 48 hours</h2>
+    <p class="muted">Worst chop along each route, hour by hour. Tap an hour to see it on the map.</p>
+    <div id="hourrows" style="display:flex;flex-direction:column;gap:10px"></div>
+  </div>
+  <div class="card" id="sections"></div>
+  <div class="card">
+    <h3>How this works, and what it does not know</h3>
+    <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and Bellingham airport's latest observation for comparison. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
+    <p class="note">Guide values for shells: under 10 cm smooth; 10 to 20 cm workable; 20 to 30 cm rough, experienced crews and bigger boats; over 30 cm or gusts over 30 mph, stay off in small boats. They are starting points, not rules: you know your boats and your crews.</p>
+    <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Water temperature is not published live: from late autumn to spring the lake is cold enough to be the bigger risk, and there is no rescue service on the lake. Routes are traced from screenshots and approximate.</p>
+  </div>
+  <p class="note">Map data © OpenStreetMap contributors. Terrain: USGS 3DEP. Forecast: Open-Meteo (NOAA HRRR, GFS). Alerts and observations: National Weather Service. Model: coxswain simulator lake tools.</p>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+(function(){
+"use strict";
+const POINTS = [[48.757, -122.405], [48.735, -122.355], [48.703, -122.305]];      // north basin, middle, south (loop)
+const MS_MPH = 2.23694;
+const TH = [0.10, 0.20, 0.30];                                                  // chop guide values, m
+const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
+const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
+let M = null, WX = null, hour = 0, layer = "chop", map = null, cellLayer = null, routeLayers = [];
+
+function verdict(hs, gust){ if (hs >= TH[2] || gust * MS_MPH >= 30) return ["off", "Stay off in small boats"]; if (hs >= TH[1]) return ["rough", "Rough"]; if (hs >= TH[0]) return ["ok", "Workable"]; return ["calm", "Smooth"]; }
+function cm(hs){ return Math.round(hs * 100) + " cm"; }
+function compass(d){ return ["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"][Math.round(((d % 360) + 360) % 360 / 22.5) % 16]; }
+function rel(windFrom, heading){ const r = ((windFrom - heading) % 360 + 360) % 360; return r <= 45 || r >= 315 ? "headwind" : (r >= 135 && r <= 225 ? "tailwind" : "crosswind"); }
+// per-direction tables, interpolated on the circle
+function dirW(d){ const x = ((d % 360) + 360) % 360 / 22.5, i = Math.floor(x) % 16; return [i, (i + 1) % 16, x - Math.floor(x)]; }
+function pick(arr16, d){ const [i, j, w] = dirW(d); return arr16[i] * (1 - w) + arr16[j] * w; }
+// the wind at a place: inverse-distance blend of the three forecast points (speed, gust, and direction as a vector)
+function windAt(lat, lon, h){
+  let sw = 0, u = 0, v = 0, s = 0, g = 0;
+  WX.forEach((p, k) => { const dl = Math.hypot((lat - POINTS[k][0]) * 111, (lon - POINTS[k][1]) * 73.5) + 0.3, w = 1 / (dl * dl);
+    const sp = p.speed[h], dr = p.dir[h]; sw += w; s += w * sp; g += w * p.gust[h]; u += w * sp * Math.sin(dr * Math.PI / 180); v += w * sp * Math.cos(dr * Math.PI / 180); });
+  return {speed: s / sw, gust: g / sw, dir: (Math.atan2(u, v) * 180 / Math.PI + 360) % 360};
+}
+function cellState(k, h){
+  const w = windAt(M.cells.lat[k], M.cells.lon[k], h);
+  const kH = [], f = []; for (let d = 0; d < 16; d++){ kH.push(M.kH[d][k]); f.push(M.f[d][k]); }
+  return {hs: pick(kH, w.dir) * w.speed, felt: pick(f, w.dir) * w.speed, gust: pick(f, w.dir) * w.gust, dir: w.dir};
+}
+function sectionState(s, h){
+  const w = windAt(s.mid[0], s.mid[1], h);
+  return {hs: pick(s.kH, w.dir) * w.speed, hsMax: pick(s.kH_max, w.dir) * w.speed, felt: pick(s.f, w.dir) * w.speed, gust: pick(s.f, w.dir) * w.gust, dir: w.dir};
+}
+function routeState(r, h){
+  const st = r.sections.map(s => sectionState(s, h));
+  const worst = st.reduce((a, b, i) => b.hsMax > a.v ? {v: b.hsMax, i} : a, {v: -1, i: 0});
+  const calmest = st.reduce((a, b, i) => b.hs < a.v ? {v: b.hs, i} : a, {v: 9, i: 0});
+  return {st, worst, calmest, maxHs: worst.v, gust: Math.max(...st.map(x => x.gust)), meanHs: st.reduce((a, b) => a + b.hs, 0) / st.length};
+}
+function colourFor(v){
+  // chop: m; wind: m/s felt. Smooth -> rough ramp through the verdict colours
+  const t = layer === "chop" ? v / 0.35 : v / 12;
+  const stops = [[0, css("--calm")], [0.33, css("--ok")], [0.66, css("--rough")], [1, css("--off")]];
+  const c = Math.max(0, Math.min(1, t));
+  for (let i = 0; i < stops.length - 1; i++) if (c <= stops[i + 1][0]) return mixHex(stops[i][1], stops[i + 1][1], (c - stops[i][0]) / (stops[i + 1][0] - stops[i][0]));
+  return stops[stops.length - 1][1];
+}
+function hex(c){ c = c.replace("#", ""); return [0, 2, 4].map(i => parseInt(c.substr(i, 2), 16)); }
+function mixHex(a, b, t){ const A = hex(a), B = hex(b); return "rgb(" + A.map((x, i) => Math.round(x + (B[i] - x) * t)).join(",") + ")"; }
+
+async function getJSON(url, opts){ const r = await fetch(url, opts); if (!r.ok) throw new Error(r.status); return r.json(); }
+async function loadWeather(){
+  const q = "https://api.open-meteo.com/v1/forecast?latitude=" + POINTS.map(p => p[0]).join(",") + "&longitude=" + POINTS.map(p => p[1]).join(",")
+    + "&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation_probability&models=gfs_seamless&wind_speed_unit=ms&timezone=America%2FLos_Angeles&forecast_days=3";
+  const d = await getJSON(q);
+  const arr = Array.isArray(d) ? d : [d];
+  const now = new Date(), t0 = arr[0].hourly.time.findIndex(t => new Date(t) >= new Date(now.getTime() - 3600e3));
+  return arr.map(p => ({time: p.hourly.time.slice(t0, t0 + 48), speed: p.hourly.wind_speed_10m.slice(t0, t0 + 48), dir: p.hourly.wind_direction_10m.slice(t0, t0 + 48),
+                        gust: p.hourly.wind_gusts_10m.slice(t0, t0 + 48), temp: p.hourly.temperature_2m.slice(t0, t0 + 48), rain: p.hourly.precipitation_probability.slice(t0, t0 + 48)}));
+}
+async function loadAlerts(){
+  try { const d = await getJSON("https://api.weather.gov/alerts/active?point=48.72,-122.33", {headers: {Accept: "application/geo+json"}});
+    const box = document.getElementById("alerts"); box.textContent = "";
+    d.features.forEach(f => { const a = el("div", "alert"); a.appendChild(el("b", null, f.properties.event)); a.appendChild(el("div", "note", f.properties.headline || "")); box.appendChild(a); });
+  } catch (e) {}
+}
+async function loadAirport(){
+  try { const o = (await getJSON("https://api.weather.gov/stations/KBLI/observations/latest", {headers: {Accept: "application/geo+json"}})).properties;
+    return o.windSpeed.value == null ? null : {speed: o.windSpeed.value / 3.6, dir: o.windDirection.value, gust: o.windGust.value == null ? null : o.windGust.value / 3.6, at: o.timestamp};
+  } catch (e) { return null; }
+}
+function hourLabel(h){ const t = new Date(WX[0].time[h]); return t.toLocaleString(undefined, {weekday: "short", hour: "numeric"}); }
+
+function drawMap(){
+  if (!map){
+    map = L.map("map", {zoomControl: true, attributionControl: true}).setView([48.725, -122.345], 12);
+    L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 17, attribution: "© OpenStreetMap contributors"}).addTo(map);
+    cellLayer = L.layerGroup().addTo(map);
+    const b = M.shore.outer.map(p => [p[0], p[1]]); map.fitBounds(L.latLngBounds(b), {padding: [10, 10]});
+  }
+  cellLayer.clearLayers();
+  const half = M.grid_m / 2 / 111000, halfLon = M.grid_m / 2 / (111000 * Math.cos(48.72 * Math.PI / 180));
+  const canvas = L.canvas({padding: 0.2});
+  for (let k = 0; k < M.cells.lat.length; k++){
+    const c = cellState(k, hour), v = layer === "chop" ? c.hs : c.felt;
+    L.rectangle([[M.cells.lat[k] - half, M.cells.lon[k] - halfLon], [M.cells.lat[k] + half, M.cells.lon[k] + halfLon]],
+                {renderer: canvas, stroke: false, fillColor: colourFor(v), fillOpacity: 0.72, interactive: false}).addTo(cellLayer);
+  }
+  routeLayers.forEach(l => map.removeLayer(l)); routeLayers = [];
+  M.routes.forEach(r => {
+    const line = L.polyline(r.points, {color: r.colour, weight: 4, opacity: 0.95}).addTo(map);
+    line.bindTooltip(r.name, {sticky: true}); routeLayers.push(line);
+  });
+  const mid = windAt(POINTS[1][0], POINTS[1][1], hour);
+  document.getElementById("arrow").style.transform = "rotate(" + mid.dir + "deg)";
+  document.getElementById("wspd").textContent = Math.round(mid.speed * MS_MPH) + " mph";
+  document.getElementById("wdir").textContent = "from " + compass(mid.dir) + ", gusts " + Math.round(mid.gust * MS_MPH) + " · " + hourLabel(hour);
+  document.getElementById("hourlab").textContent = hourLabel(hour);
+  const ramp = document.getElementById("ramp"); ramp.style.background = "linear-gradient(90deg," + [0, .33, .66, 1].map(t => colourFor(layer === "chop" ? t * 0.35 : t * 12)).join(",") + ")";
+  document.getElementById("leglo").textContent = layer === "chop" ? "0 cm" : "0 mph";
+  document.getElementById("leghi").textContent = layer === "chop" ? "35 cm+" : "27 mph+";
+}
+
+function renderRoutes(){
+  const box = document.getElementById("routes"); box.textContent = "";
+  M.routes.forEach(r => {
+    const s = routeState(r, hour), [cls, txt] = verdict(s.maxHs, s.gust), c = el("div", "card");
+    const head = el("div", "verdict"); const dot = el("span", "dot"); dot.style.background = r.colour; const h = el("h3"); h.appendChild(dot); h.appendChild(document.createTextNode(r.name));
+    head.appendChild(h); head.appendChild(el("span", "pill " + cls, txt)); c.appendChild(head);
+    const st = el("div", "stats");
+    [[cm(s.maxHs), "worst chop on the route"], [cm(s.meanHs), "average chop"], [Math.round(s.gust * MS_MPH) + " mph", "strongest gust on the water"]].forEach(x => {
+      const d = el("div"); d.appendChild(el("b", "num", x[0])); d.appendChild(el("span", null, x[1])); st.appendChild(d); });
+    c.appendChild(st);
+    const w = s.st[s.worst.i], cal = s.st[s.calmest.i], ws = r.sections[s.worst.i], cs = r.sections[s.calmest.i];
+    c.appendChild(el("p", "note", "Roughest: " + (ws.from_m / 1000).toFixed(1) + "–" + (ws.to_m / 1000).toFixed(1) + " km (" + cm(w.hsMax) + ", " + rel(w.dir, ws.heading) + " going out). "
+      + "Calmest: " + (cs.from_m / 1000).toFixed(1) + "–" + (cs.to_m / 1000).toFixed(1) + " km (" + cm(cal.hs) + "). "
+      + advice(r, s)));
+    box.appendChild(c);
+  });
+}
+function advice(r, s){
+  // which way to start: go out into the wind (fresh crews, and an easier row home)
+  const first = r.sections[0], w = s.st[0];
+  const into = rel(w.dir, first.heading);
+  if (r.key === "loop") return into === "tailwind" ? "Row the loop the other way round so the first leg is into the wind." : "The first leg as drawn is " + into + ": a good way round.";
+  return into === "tailwind" ? "Starting at the north end, the wind is behind you on the way out; it will be in your face coming back." : "Starting at the north end the first leg is " + into + ".";
+}
+
+function renderHours(){
+  const box = document.getElementById("hourrows"); box.textContent = "";
+  M.routes.forEach(r => {
+    const row = el("div"); row.appendChild(el("div", "note", r.name));
+    const hs = el("div", "hours");
+    for (let h = 0; h < WX[0].time.length; h++){
+      const s = routeState(r, h), [cls] = verdict(s.maxHs, s.gust), d = el("div", h === hour ? "sel" : null);
+      const bar = el("span"); bar.style.height = Math.max(4, Math.min(40, s.maxHs * 120)) + "px"; bar.style.background = css("--" + cls);
+      d.appendChild(bar); const t = new Date(WX[0].time[h]); d.appendChild(el("span", "num", t.getHours() === 0 ? t.toLocaleDateString(undefined, {weekday: "short"}) : String(t.getHours())));
+      d.title = hourLabel(h) + ": worst chop " + cm(s.maxHs); d.addEventListener("click", () => setHour(h)); hs.appendChild(d);
+    }
+    row.appendChild(hs); box.appendChild(row);
+  });
+}
+function renderSections(){
+  const box = document.getElementById("sections"); box.textContent = "";
+  box.appendChild(el("h2", null, "Section by section · " + hourLabel(hour)));
+  M.routes.forEach(r => {
+    box.appendChild(el("h3", null, r.name + " (" + (r.length_m / 1000).toFixed(1) + " km)"));
+    const tw = el("div", "tablewrap"), t = el("table"), hd = el("tr");
+    ["Section", "Chop", "Worst", "Wind on the water", "Gusts", "Going out", "Coming back"].forEach(x => hd.appendChild(el("th", null, x))); t.appendChild(hd);
+    r.sections.forEach((s, i) => { const c = sectionState(s, hour), tr = el("tr"), [cls] = verdict(c.hsMax, c.gust);
+      const name = el("td"); const dot = el("span", "dot"); dot.style.background = css("--" + cls); name.appendChild(dot); name.appendChild(document.createTextNode((s.from_m / 1000).toFixed(1) + "–" + (s.to_m / 1000).toFixed(1) + " km"));
+      tr.appendChild(name);
+      [cm(c.hs), cm(c.hsMax), Math.round(c.felt * MS_MPH) + " mph", Math.round(c.gust * MS_MPH) + " mph"].forEach(v => tr.appendChild(el("td", "n", v)));
+      tr.appendChild(el("td", null, rel(c.dir, s.heading))); tr.appendChild(el("td", null, rel(c.dir, (s.heading + 180) % 360)));
+      t.appendChild(tr); });
+    tw.appendChild(t); box.appendChild(tw);
+  });
+}
+function setHour(h){ hour = h; document.getElementById("hour").value = h; drawMap(); renderRoutes(); renderHours(); renderSections(); }
+
+async function start(){
+  try {
+    M = await getJSON("model.json");
+    WX = await loadWeather();
+    const n = WX[0].time.length; document.getElementById("hour").max = n - 1;
+    const ap = await loadAirport();
+    document.getElementById("updated").textContent = "Forecast loaded " + new Date().toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"})
+      + (ap ? " · Bellingham airport now " + Math.round(ap.speed * MS_MPH) + " mph " + (ap.dir != null ? "from " + compass(ap.dir) : "") + (ap.gust ? ", gusts " + Math.round(ap.gust * MS_MPH) : "") : "");
+    setHour(0); loadAlerts();
+  } catch (e) {
+    document.getElementById("updated").textContent = "Could not load the forecast (" + e.message + "). Check the connection and reload.";
+  }
+}
+document.getElementById("hour").addEventListener("input", e => setHour(Number(e.target.value)));
+document.getElementById("now").addEventListener("click", () => setHour(0));
+document.querySelectorAll("[data-layer]").forEach(b => b.addEventListener("click", () => { layer = b.dataset.layer;
+  document.querySelectorAll("[data-layer]").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false")); drawMap(); }));
+start();
+setInterval(async () => { try { WX = await loadWeather(); setHour(Math.min(hour, WX[0].time.length - 1)); } catch (e) {} }, 15 * 60 * 1000);
+})();
+</script>
+</body>
+</html>
