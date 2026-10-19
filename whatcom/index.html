@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
-<title>Lake Whatcom Rowing Conditions</title>
+<title>Lake Rowing Conditions</title>
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo+Narrow:wght@500;600;700&family=Source+Sans+3:wght@400;600&family=JetBrains+Mono:wght@400;600&display=swap">
@@ -34,7 +34,7 @@ p{margin:0;max-width:70ch}
 .live i{width:8px;height:8px;border-radius:50%;background:var(--calm);display:inline-block}
 .alerts{display:flex;flex-direction:column;gap:8px}
 .alert{background:var(--card);border:1px solid var(--off);border-left-width:5px;border-radius:10px;padding:10px 14px}
-.routes{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}
+.routes{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,330px),1fr));gap:14px}
 @media (max-width:760px){.routes{grid-template-columns:1fr}}
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px;min-width:0}
 .verdict{display:flex;gap:12px;align-items:center}
@@ -76,16 +76,16 @@ td.n{text-align:right;font-family:var(--mono)}
 <div class="wrap">
   <div class="top">
     <div style="display:flex;flex-direction:column;gap:6px">
-      <div class="muted" style="font:600 13px var(--body);letter-spacing:.12em;text-transform:uppercase">Lake Whatcom · Bellingham</div>
+      <div class="muted" id="eyebrow" style="font:600 13px var(--body);letter-spacing:.12em;text-transform:uppercase">Loading…</div>
       <h1>Rowing conditions</h1>
-      <p class="muted">Where the wind and chop are on the lake, hour by hour, for the North basin to Sudden Valley row and the Sudden Valley loop.</p>
+      <p class="muted" id="subtitle"></p>
     </div>
     <div class="live"><i></i><span id="updated">Loading the forecast…</span></div>
   </div>
   <div class="alerts" id="alerts"></div>
   <div class="routes" id="routes"></div>
   <div class="card mapcard">
-    <div style="position:relative"><div id="map" role="application" aria-label="Map of Lake Whatcom coloured by chop or wind"></div>
+    <div style="position:relative"><div id="map" role="application" aria-label="Map of the lake coloured by chop or wind"></div>
       <div class="windbadge"><svg viewBox="0 0 24 24" aria-hidden="true" id="arrow"><path d="M12 3v15m0 0l-5-5m5 5l5-5" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
         <div><b class="num" id="wspd">–</b><span class="muted" id="wdir" style="font-size:12.5px">forecast</span></div></div></div>
     <div class="mapbar">
@@ -107,9 +107,9 @@ td.n{text-align:right;font-family:var(--mono)}
   <div class="card" id="sections"></div>
   <div class="card">
     <h3>How this works, and what it does not know</h3>
-    <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and Bellingham airport's latest observation for comparison. Lakeside home weather stations (Citizen Weather Observer Program), relayed every 15 minutes; when they show the lake running windier or calmer than forecast, the next three hours are adjusted (calibrated on two months of their history). Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
+    <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and the nearest airport's latest observation for comparison. Lakeside home weather stations (Citizen Weather Observer Program), relayed every 15 minutes; when they show the lake running windier or calmer than forecast, the next three hours are adjusted (calibrated on two months of their history). Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
     <p class="note">Guide values for shells: under 10 cm smooth; 10 to 20 cm workable; 20 to 30 cm rough, experienced crews and bigger boats; over 30 cm or gusts over 30 mph, stay off in small boats. They are starting points, not rules: you know your boats and your crews.</p>
-    <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Water temperature is not published live: from late autumn to spring the lake is cold enough to be the bigger risk, and there is no rescue service on the lake. Routes are traced from screenshots and approximate.</p>
+    <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Water temperature is not published live: from late autumn to spring the water is cold enough to be the bigger risk. Routes are approximate. <span id="lakenote"></span></p>
   </div>
   <p class="note">Map data © OpenStreetMap contributors. Terrain: USGS 3DEP. Forecast: Open-Meteo (NOAA HRRR, GFS). Alerts and observations: National Weather Service. Model: coxswain simulator lake tools.</p>
 </div>
@@ -117,16 +117,10 @@ td.n{text-align:right;font-family:var(--mono)}
 <script>
 (function(){
 "use strict";
-const POINTS = [[48.757, -122.405], [48.735, -122.355], [48.703, -122.305]];      // north basin, middle, south (loop)
+let CFG = null, POINTS = null;                                                   // lake.json: the lake's forecast points, stations, airport
 const MS_MPH = 2.23694;
 const TH = [0.10, 0.20, 0.30];                                                  // chop guide values, m
-// citizen weather stations (CWOP) at the lake, through the National Weather Service; they arrive about 4 h late
-const STATIONS = [
-  {id: "D0884", name: "Agate Bay, lake level", lat: 48.76116, lon: -122.36255},
-  {id: "F1160", name: "North shore, middle basin, lake level", lat: 48.75083, lon: -122.3545},
-  {id: "F6124", name: "Geneva shore", lat: 48.745, lon: -122.3955},
-  {id: "E7158", name: "Sudden Valley hillside, 90 m above the lake", lat: 48.7035, lon: -122.32317}
-];
+let STATIONS = [];
 let HIST = null;                                                                 // the forecast including the past day
 const css = n => getComputedStyle(document.documentElement).getPropertyValue(n).trim();
 const el = (t, c, txt) => { const e = document.createElement(t); if (c) e.className = c; if (txt != null) e.textContent = txt; return e; };
@@ -184,17 +178,17 @@ async function loadWeather(){
                         gust: p.hourly.wind_gusts_10m.slice(t0, t0 + 48), temp: p.hourly.temperature_2m.slice(t0, t0 + 48), rain: p.hourly.precipitation_probability.slice(t0, t0 + 48)}));
 }
 async function loadAlerts(){
-  try { const d = await getJSON("https://api.weather.gov/alerts/active?point=48.72,-122.33", {headers: {Accept: "application/geo+json"}});
+  try { const d = await getJSON("https://api.weather.gov/alerts/active?point=" + CFG.alert_point, {headers: {Accept: "application/geo+json"}});
     const box = document.getElementById("alerts"); box.textContent = "";
     d.features.forEach(f => { const a = el("div", "alert"); a.appendChild(el("b", null, f.properties.event)); a.appendChild(el("div", "note", f.properties.headline || "")); box.appendChild(a); });
   } catch (e) {}
 }
 async function loadAirport(){
-  try { const o = (await getJSON("https://api.weather.gov/stations/KBLI/observations/latest", {headers: {Accept: "application/geo+json"}})).properties;
+  try { const o = (await getJSON("https://api.weather.gov/stations/" + CFG.airport.id + "/observations/latest", {headers: {Accept: "application/geo+json"}})).properties;
     return o.windSpeed.value == null ? null : {speed: o.windSpeed.value / 3.6, dir: o.windDirection.value, gust: o.windGust.value == null ? null : o.windGust.value / 3.6, at: o.timestamp};
   } catch (e) { return null; }
 }
-const RELAY = "https://raw.githubusercontent.com/josh-porg/charles-race-card/whatcom-data/live.json";
+let RELAY = null;
 let CAL = null, NOW = null, useLive = true, WXRAW = null;
 // the lakeside stations: the relay (findu, minutes old) first, the National Weather Service (hours old) if it is down
 async function loadStations(){
@@ -206,12 +200,12 @@ async function loadStations(){
   const out = [];
   for (const st of STATIONS){
     try {
-      const d = await getJSON("https://api.weather.gov/stations/" + st.id + "/observations?limit=12", {headers: {Accept: "application/geo+json"}});
+      const d = await getJSON("https://api.weather.gov/stations/" + st.nws + "/observations?limit=12", {headers: {Accept: "application/geo+json"}});
       const obs = d.features.map(f => f.properties).filter(p => p.windSpeed && p.windSpeed.value != null)
         .map(p => ({t: new Date(p.timestamp).getTime(), speed: p.windSpeed.value / 3.6, dir: p.windDirection ? p.windDirection.value : null,
                     gust: p.windGust && p.windGust.value != null ? p.windGust.value / 3.6 : null}));
-      out.push(Object.assign({}, st, {obs, via: "nws"}));
-    } catch (e) { out.push(Object.assign({}, st, {obs: [], error: true})); }
+      out.push(Object.assign({}, st, {id: st.call, obs, via: "nws"}));
+    } catch (e) { out.push(Object.assign({}, st, {id: st.call, obs: [], error: true})); }
   }
   return out;
 }
@@ -280,9 +274,10 @@ function renderStations(list){
   tw.appendChild(t); box.appendChild(tw);
   const p = el("p", "note");
   if (NOW){
+    const gains = Object.values(CAL.weights || {}).filter(x => x > 0);
     p.textContent = "Live correction: the lake is running at " + Math.round(100 * NOW.ratio) + "% of the forecast right now (" + NOW.stations.join(", ") + "). "
       + (useLive ? "The next three hours on this page are adjusted, fading back to the forecast after that. " : "Not applied. ")
-      + "In two months of history this cut the next hour's error by 15 to 35%.";
+      + (gains.length ? "In these stations' history it cut the next hour's error by up to " + Math.round(100 * Math.max(...gains)) + "%." : "");
     const b = el("button", null, useLive ? "Show the plain forecast" : "Apply the live correction"); b.type = "button"; b.style.marginLeft = "8px";
     b.addEventListener("click", () => { useLive = !useLive; applyNowcast(); setHour(hour); renderStations(list); });
     p.appendChild(b);
@@ -290,19 +285,19 @@ function renderStations(list){
     p.textContent = "No live correction now: the wind is too light, or the stations have not reported in the last hour. The page shows the plain forecast.";
   }
   box.appendChild(p);
-  if (CAL) box.appendChild(el("p", "note", "Calibrated on " + CAL.station_hours + " station-hours since late August: each station's own exposure, and the hill shelter of the lake model (strength " + CAL.alpha + ")."));
+  if (CAL) box.appendChild(el("p", "note", "Calibrated on " + CAL.station_hours + " windy hours at the lake-level stations, with each station's own exposure and the lake model's hill shelter (strength " + CAL.alpha + "); stations that did not improve the next hour carry no weight in the live correction."));
 }
 function hourLabel(h){ const t = new Date(WX[0].time[h]); return t.toLocaleString(undefined, {weekday: "short", hour: "numeric"}); }
 
 function drawMap(){
   if (!map){
-    map = L.map("map", {zoomControl: true, attributionControl: true}).setView([48.725, -122.345], 12);
+    map = L.map("map", {zoomControl: true, attributionControl: true}).setView(CFG.origin, 12);
     L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {maxZoom: 17, attribution: "© OpenStreetMap contributors"}).addTo(map);
     cellLayer = L.layerGroup().addTo(map);
     const b = M.shore.outer.map(p => [p[0], p[1]]); map.fitBounds(L.latLngBounds(b), {padding: [10, 10]});
   }
   cellLayer.clearLayers();
-  const half = M.grid_m / 2 / 111000, halfLon = M.grid_m / 2 / (111000 * Math.cos(48.72 * Math.PI / 180));
+  const half = M.grid_m / 2 / 111000, halfLon = M.grid_m / 2 / (111000 * Math.cos(CFG.origin[0] * Math.PI / 180));
   const canvas = L.canvas({padding: 0.2});
   for (let k = 0; k < M.cells.lat.length; k++){
     const c = cellState(k, hour), v = layer === "chop" ? c.hs : c.felt;
@@ -342,13 +337,12 @@ function renderRoutes(){
   });
 }
 function advice(r, s){
-  // which way to start: go out into the wind (fresh crews, and an easier row home)
-  const first = r.sections[0], w = s.st[0];
-  const into = rel(w.dir, first.heading);
-  if (r.key === "loop") return into === "tailwind" ? "Row the loop the other way round so the first leg is into the wind." : "The first leg as drawn is " + into + ": a good way round.";
-  return into === "tailwind" ? "Starting at the north end, the wind is behind you on the way out; it will be in your face coming back." : "Starting at the north end the first leg is " + into + ".";
+  // go out into the wind: fresh crews meet it first, and the row home is easier
+  const first = r.sections[0], w = s.st[0], into = rel(w.dir, first.heading);
+  const loop = Math.hypot(r.points[0][0] - r.points[r.points.length - 1][0], r.points[0][1] - r.points[r.points.length - 1][1]) < 0.0015;
+  if (loop) return into === "tailwind" ? "Row the loop the other way round so the first leg is into the wind." : "The first leg as drawn is " + into + ": a good way round.";
+  return into === "tailwind" ? "Going out along the route the wind is behind you; it will be in your face coming back." : "Going out along the route the first leg is " + into + ".";
 }
-
 function renderHours(){
   const box = document.getElementById("hourrows"); box.textContent = "";
   M.routes.forEach(r => {
@@ -383,6 +377,13 @@ function setHour(h){ hour = h; document.getElementById("hour").value = h; drawMa
 
 async function start(){
   try {
+    CFG = await getJSON("lake.json");
+    POINTS = CFG.forecast_points; RELAY = CFG.relay;
+    STATIONS = CFG.stations.map(x => ({id: x.call, call: x.call, nws: x.nws, name: x.name, lat: x.lat, lon: x.lon}));
+    document.title = CFG.name + " Rowing Conditions";
+    document.getElementById("eyebrow").textContent = CFG.name + " · " + CFG.place;
+    document.getElementById("subtitle").textContent = CFG.subtitle;
+    document.getElementById("lakenote").textContent = CFG.notes || "";
     M = await getJSON("model.json");
     try { CAL = await getJSON("calibration.json"); } catch (e) { CAL = null; }
     WXRAW = await loadWeather(); WX = WXRAW;
@@ -391,7 +392,7 @@ async function start(){
     const n = WX[0].time.length; document.getElementById("hour").max = n - 1;
     const ap = await loadAirport();
     document.getElementById("updated").textContent = "Forecast loaded " + new Date().toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"})
-      + (ap ? " · Bellingham airport now " + Math.round(ap.speed * MS_MPH) + " mph " + (ap.dir != null ? "from " + compass(ap.dir) : "") + (ap.gust ? ", gusts " + Math.round(ap.gust * MS_MPH) : "") : "");
+      + (ap ? " · " + CFG.airport.name + " now " + Math.round(ap.speed * MS_MPH) + " mph " + (ap.dir != null ? "from " + compass(ap.dir) : "") + (ap.gust ? ", gusts " + Math.round(ap.gust * MS_MPH) : "") : "");
     setHour(0); loadAlerts(); renderStations(stationList);
   } catch (e) {
     document.getElementById("updated").textContent = "Could not load the forecast (" + e.message + "). Check the connection and reload.";

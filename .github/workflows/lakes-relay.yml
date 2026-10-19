@@ -1,10 +1,10 @@
-# Lake Whatcom conditions page: relay the lakeside CWOP weather stations every 15 minutes.
-# Writes live.json (and appends history/*.csv) on the whatcom-data branch, which the page reads from
+# Lake conditions pages (Whatcom, Sammamish): relay the lakeside CWOP weather stations every 15 minutes.
+# Writes <lake>/live.json (and appends <lake>/history/*.csv) on the lakes-data branch, which the page reads from
 # raw.githubusercontent.com; the site itself (main) is not rebuilt. To stop it: disable this workflow in
 # the repository's Actions tab, or delete this file. GitHub switches scheduled workflows off after 60 days
 # without repository activity; the weekly keepalive step re-enables it (no commit), as does the laptop's
 # weekly task (data/local/raceday/keepalive_relay.py).
-name: Lake Whatcom stations relay
+name: Lake stations relay
 on:
   schedule:
     - cron: "7,22,37,52 * * * *"
@@ -14,7 +14,7 @@ permissions:
   contents: write
   actions: write
 concurrency:
-  group: whatcom-relay
+  group: lakes-relay
   cancel-in-progress: false
 jobs:
   relay:
@@ -26,20 +26,20 @@ jobs:
           path: main
       - name: Check out the data branch (created on the first run)
         run: |
-          git clone --quiet --depth 1 --branch whatcom-data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data \
-            || (mkdir data && cd data && git init --quiet -b whatcom-data && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git")
+          git clone --quiet --depth 1 --branch lakes-data "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git" data \
+            || (mkdir data && cd data && git init --quiet -b lakes-data && git remote add origin "https://x-access-token:${{ github.token }}@github.com/${{ github.repository }}.git")
       - name: Read the stations
-        run: python3 main/relay/whatcom_relay.py data
+        run: python3 main/relay/lake_relay.py data
       - name: Publish
         run: |
           cd data
-          git config user.name "whatcom-relay"
-          git config user.email "whatcom-relay@users.noreply.github.com"
+          git config user.name "lakes-relay"
+          git config user.email "lakes-relay@users.noreply.github.com"
           git add -A
           git diff --cached --quiet && exit 0
           git commit --quiet -m "Stations $(date -u +%Y-%m-%dT%H:%MZ)"
-          git push --quiet origin HEAD:whatcom-data
+          git push --quiet origin HEAD:lakes-data
       - name: Keepalive (weekly)
         if: github.event.schedule == '3 17 * * 0'
         run: |
-          curl -fsS -X PUT -H "Authorization: Bearer ${{ github.token }}" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/whatcom-relay.yml/enable" && echo "re-enabled"
+          curl -fsS -X PUT -H "Authorization: Bearer ${{ github.token }}" -H "Accept: application/vnd.github+json"             "https://api.github.com/repos/${{ github.repository }}/actions/workflows/lakes-relay.yml/enable" && echo "re-enabled"

@@ -1,24 +1,20 @@
-"""Relay the Lake Whatcom lakeside weather stations (CWOP) to the conditions page, every 15 minutes.
+"""Relay the lakeside weather stations (CWOP) to the lake conditions pages, every 15 minutes.
 
-Run by .github/workflows/whatcom-relay.yml. The stations report every 5-15 minutes into the Citizen Weather
+Run by .github/workflows/lakes-relay.yml; the stations per lake are in lakes.json beside this file. The stations report every 5-15 minutes into the Citizen Weather
 Observer Program (APRS); findu.com keeps their recent reports, but not in a form a web page may read, and the
 National Weather Service relays them about four hours late. This reads each station's last few hours from
-findu (one small request per station, spaced out), writes live.json for the page, and appends new readings to
-history/<call>.csv so the model can be recalibrated as the record grows (data/local/whatcom/calibrate.py).
+findu (one small request per station, spaced out), writes <lake>/live.json for each page, and appends new
+readings to <lake>/history/<call>.csv so the models can be recalibrated as the record grows
+(data/local/lakes/calibrate.py).
 
-Usage: python whatcom_relay.py OUTDIR   (OUTDIR is the checkout of the whatcom-data branch)
+Usage: python lake_relay.py OUTDIR   (OUTDIR is the checkout of the lakes-data branch)
 Standard library only.
 """
 import csv, json, os, re, sys, time, urllib.request
 from datetime import datetime, timezone
 
-STATIONS = {
-    "DW0884": dict(name="Agate Bay, lake level", lat=48.76116, lon=-122.36255),
-    "FW1160": dict(name="North shore, middle basin, lake level", lat=48.75083, lon=-122.3545),
-    "FW6124": dict(name="Geneva shore", lat=48.745, lon=-122.3955),
-    "EW7158": dict(name="Sudden Valley hillside, 90 m above the lake", lat=48.7035, lon=-122.32317),
-}
-UA = {"User-Agent": "Lake Whatcom rowing conditions relay (github.com/josh-porg/charles-race-card); 4 stations every 15 min"}
+LAKES = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lakes.json")))
+UA = {"User-Agent": "Lake rowing conditions relay (github.com/josh-porg/charles-race-card); a few stations every 15 min"}
 FIELDS = ["t", "temp_f", "dir", "mph", "gust_mph"]
 
 
@@ -33,10 +29,10 @@ def readings(call, hours=4):
     return sorted(out, key=lambda r: r["t"])
 
 
-def main(outdir):
+def relay_lake(outdir, stations):
     os.makedirs(os.path.join(outdir, "history"), exist_ok=True)
     live = dict(updated=datetime.now(timezone.utc).isoformat(timespec="seconds"), source="findu.com (CWOP)", stations={})
-    for call, meta in STATIONS.items():
+    for call, meta in stations.items():
         try:
             rows = readings(call)
         except Exception as e:                       # one station failing must not stop the others
@@ -64,7 +60,12 @@ def main(outdir):
                 w.writerows(new)
         time.sleep(3)
     json.dump(live, open(os.path.join(outdir, "live.json"), "w"), separators=(",", ":"))
-    print("live.json:", {c: (len(s["obs"]), s["obs"][-1][0] if s["obs"] else None) for c, s in live["stations"].items()})
+    return {c: (len(s["obs"]), s["obs"][-1][0] if s["obs"] else None) for c, s in live["stations"].items()}
+
+
+def main(outdir):
+    for lake, stations in LAKES.items():
+        print(lake, relay_lake(os.path.join(outdir, lake), stations))
 
 
 if __name__ == "__main__":

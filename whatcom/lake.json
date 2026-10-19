@@ -1,0 +1,72 @@
+{
+ "key": "whatcom",
+ "name": "Lake Whatcom",
+ "place": "Bellingham",
+ "origin": [
+  48.72,
+  -122.34
+ ],
+ "dem": "whatcom_dem.npz",
+ "dem_bounds": [
+  48.6199366197183,
+  -122.47,
+  48.80006338028168,
+  -122.18
+ ],
+ "subtitle": "Where the wind and chop are on the lake, hour by hour, for the North basin to Sudden Valley row and the Sudden Valley loop.",
+ "forecast_points": [
+  [
+   48.757,
+   -122.405
+  ],
+  [
+   48.735,
+   -122.355
+  ],
+  [
+   48.703,
+   -122.305
+  ]
+ ],
+ "alert_point": "48.72,-122.33",
+ "airport": {
+  "id": "KBLI",
+  "name": "Bellingham airport"
+ },
+ "relay": "https://raw.githubusercontent.com/josh-porg/charles-race-card/lakes-data/whatcom/live.json",
+ "stations": [
+  {
+   "call": "DW0884",
+   "nws": "D0884",
+   "name": "Agate Bay, lake level",
+   "lat": 48.76116,
+   "lon": -122.36255,
+   "lake_level": true
+  },
+  {
+   "call": "FW1160",
+   "nws": "F1160",
+   "name": "North shore, middle basin, lake level",
+   "lat": 48.75083,
+   "lon": -122.3545,
+   "lake_level": true
+  },
+  {
+   "call": "FW6124",
+   "nws": "F6124",
+   "name": "Geneva shore",
+   "lat": 48.745,
+   "lon": -122.3955,
+   "lake_level": true
+  },
+  {
+   "call": "EW7158",
+   "nws": "E7158",
+   "name": "Sudden Valley hillside, 90 m above the lake",
+   "lat": 48.7035,
+   "lon": -122.32317,
+   "lake_level": false
+  }
+ ],
+ "notes": "Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there."
+}

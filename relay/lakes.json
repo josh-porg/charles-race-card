@@ -1,0 +1,41 @@
+{
+ "whatcom": {
+  "DW0884": {
+   "name": "Agate Bay, lake level",
+   "lat": 48.76116,
+   "lon": -122.36255
+  },
+  "FW1160": {
+   "name": "North shore, middle basin, lake level",
+   "lat": 48.75083,
+   "lon": -122.3545
+  },
+  "FW6124": {
+   "name": "Geneva shore",
+   "lat": 48.745,
+   "lon": -122.3955
+  },
+  "EW7158": {
+   "name": "Sudden Valley hillside, 90 m above the lake",
+   "lat": 48.7035,
+   "lon": -122.32317
+  }
+ },
+ "sammamish": {
+  "GW8062": {
+   "name": "Redmond, by the river 800 m north of the lake",
+   "lat": 47.66067,
+   "lon": -122.10567
+  },
+  "GW1372": {
+   "name": "West hill, Bellevue, 75 m above the lake",
+   "lat": 47.60104,
+   "lon": -122.13329
+  },
+  "EW8450": {
+   "name": "Sammamish plateau, east, 120 m above the lake",
+   "lat": 47.583,
+   "lon": -122.03867
+  }
+ }
+}
