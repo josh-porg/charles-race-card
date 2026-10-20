@@ -65,6 +65,15 @@ th{font:600 11.5px var(--body);letter-spacing:.08em;text-transform:uppercase;col
 td.n{text-align:right;font-family:var(--mono)}
 .dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:6px;vertical-align:-1px}
 .note{font-size:13.5px;color:var(--muted)}
+.fogdays{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,300px),1fr));gap:12px}
+.fogday{border:1px solid var(--line);border-radius:10px;padding:12px;display:flex;flex-direction:column;gap:8px}
+.fogstrip{display:flex;gap:3px}
+.fogstrip div{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;color:var(--muted)}
+.fogstrip .sw{width:100%;height:22px;border-radius:4px}
+.fogstrip div.launch{color:var(--ink);font-weight:600}
+.fogstrip div.launch .sw{outline:2px solid var(--ink);outline-offset:1px}
+.fogbar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;font-size:14px}
+.fogbar select{font:inherit;padding:5px 8px;border-radius:7px;border:1px solid var(--line);background:var(--card);color:var(--ink)}
 .windbadge{position:absolute;right:12px;top:12px;z-index:500;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:8px 12px;display:flex;gap:10px;align-items:center}
 .windbadge svg{width:38px;height:38px;color:var(--accent)}
 .windbadge b{font:600 22px/1 var(--display);display:block}
@@ -83,6 +92,7 @@ td.n{text-align:right;font-family:var(--mono)}
     <div class="live"><i></i><span id="updated">Loading the forecast…</span></div>
   </div>
   <div class="alerts" id="alerts"></div>
+  <div class="card" id="fog"><h2>Fog at practice</h2><p class="muted">Loading the fog outlook…</p></div>
   <div class="routes" id="routes"></div>
   <div class="card mapcard">
     <div style="position:relative"><div id="map" role="application" aria-label="Map of the lake coloured by chop or wind"></div>
@@ -109,7 +119,7 @@ td.n{text-align:right;font-family:var(--mono)}
     <h3>How this works, and what it does not know</h3>
     <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and the nearest airport's latest observation for comparison. Lakeside home weather stations (Citizen Weather Observer Program), relayed every 15 minutes; when they show the lake running windier or calmer than forecast, the next three hours are adjusted (calibrated on two months of their history). Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
     <p class="note">Guide values for shells: under 10 cm smooth; 10 to 20 cm workable; 20 to 30 cm rough, experienced crews and bigger boats; over 30 cm or gusts over 30 mph, stay off in small boats. They are starting points, not rules: you know your boats and your crews.</p>
-    <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Water temperature is not published live: from late autumn to spring the water is cold enough to be the bigger risk. Routes are approximate. <span id="lakenote"></span></p>
+    <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Fog: see its own note above. Water temperature is not published live: from late autumn to spring the water is cold enough to be the bigger risk. Routes are approximate. <span id="lakenote"></span></p>
   </div>
   <p class="note">Map data © OpenStreetMap contributors. Terrain: USGS 3DEP. Forecast: Open-Meteo (NOAA HRRR, GFS). Alerts and observations: National Weather Service. Model: coxswain simulator lake tools.</p>
 </div>
@@ -173,6 +183,71 @@ function corrU(u, d){
   const s = C.sectors[i] * (1 - w) + C.sectors[(i + 1) % 8] * w;
   return C.k * s * Math.pow(u, C.beta);
 }
+// ---- fog: the calibrated morning model (lake.json fog_model; data/local/lakes/fog_calibrate.py) ----
+let FOG = null, launch = (() => { try { return Number(localStorage.getItem("launch") || 5); } catch (e) { return 5; } })();
+async function loadFog(){
+  const m = CFG.fog_model; if (!m) return null;
+  const q = "https://api.open-meteo.com/v1/forecast?latitude=" + m.point[0] + "&longitude=" + m.point[1]
+    + "&hourly=visibility,temperature_2m,dew_point_2m,relative_humidity_2m,cloud_cover_low,wind_speed_10m,weather_code&models=gfs_seamless&timezone=America%2FLos_Angeles&past_days=1&forecast_days=3";
+  const h = (await getJSON(q)).hourly;
+  const idx = {}; h.time.forEach((t, i) => idx[t] = i);
+  const out = [];
+  h.time.forEach((t, i) => {
+    const hr = Number(t.slice(11, 13)); if (hr < 3 || hr > 10) return;
+    if ([h.visibility[i], h.temperature_2m[i], h.dew_point_2m[i], h.relative_humidity_2m[i]].some(v => v == null)) return;
+    const d = new Date(t.slice(0, 10) + "T12:00"), doy = Math.round((d - new Date(d.getFullYear(), 0, 0)) / 864e5);
+    const prev = new Date(d.getTime() - 864e5).toISOString().slice(0, 10) + "T21:00", e = idx[prev];
+    const dpdEve = e != null && h.temperature_2m[e] != null ? h.temperature_2m[e] - h.dew_point_2m[e] : 5;
+    const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+    const x = [Math.log10(clamp(h.visibility[i], 50, 30000)), clamp(h.temperature_2m[i] - h.dew_point_2m[i], 0, 10), h.relative_humidity_2m[i] / 100,
+               clamp((h.wind_speed_10m[i] || 0) / 3.6, 0, 15), (h.cloud_cover_low[i] || 0) / 100, [45, 48].includes(h.weather_code[i]) ? 1 : 0,
+               hr - 6, (hr - 6) * (hr - 6) / 10, Math.cos(2 * Math.PI * doy / 365.25), Math.sin(2 * Math.PI * doy / 365.25), clamp(dpdEve, 0, 10)];
+    let z = m.intercept; x.forEach((v, k) => { z += m.coef[k] * (v - m.mean[k]) / m.sd[k]; });
+    out.push({day: t.slice(0, 10), hour: hr, p: 1 / (1 + Math.exp(-z)), vis: h.visibility[i]});
+  });
+  return out;
+}
+function fogWord(p){ return p >= 0.7 ? "very likely" : p >= 0.4 ? "likely" : p >= 0.15 ? "possible" : "unlikely"; }
+function fogColour(p){ return p >= 0.7 ? css("--off") : p >= 0.4 ? css("--rough") : p >= 0.15 ? css("--ok") : css("--calm"); }
+function renderFog(airportNow){
+  const box = document.getElementById("fog"); box.textContent = "";
+  box.appendChild(el("h2", null, "Fog at practice"));
+  const bar = el("div", "fogbar"); bar.appendChild(el("span", "muted", "Launch at"));
+  const sel = el("select"); sel.id = "launch"; sel.setAttribute("aria-label", "Launch time");
+  for (let h = 4; h <= 9; h++){ const o = el("option", null, h + ":00 am"); o.value = h; if (h === launch) o.selected = true; sel.appendChild(o); }
+  sel.addEventListener("change", () => { launch = Number(sel.value); try { localStorage.setItem("launch", launch); } catch (e) {} renderFog(airportNow); });
+  bar.appendChild(sel);
+  if (airportNow && airportNow.vis != null) bar.appendChild(el("span", "muted", CFG.airport.name + " now: visibility " + (airportNow.vis >= 16000 ? "10+ miles" : (airportNow.vis / 1609).toFixed(1) + " mi") + (airportNow.text ? " · " + airportNow.text : "")));
+  box.appendChild(bar);
+  if (!FOG || !FOG.length){ box.appendChild(el("p", "note", "The fog outlook is not available just now.")); return; }
+  const now = new Date(), today = now.toLocaleDateString("en-CA", {timeZone: "America/Los_Angeles"}), hourNow = Number(now.toLocaleString("en-US", {hour: "numeric", hour12: false, timeZone: "America/Los_Angeles"}));
+  const days = [...new Set(FOG.map(f => f.day))].filter(d => d > today || (d === today && hourNow <= 10)).slice(0, 2);
+  const grid = el("div", "fogdays");
+  days.forEach(d => {
+    const hrs = FOG.filter(f => f.day === d).sort((a, b) => a.hour - b.hour), atL = hrs.find(f => f.hour === launch);
+    const card = el("div", "fogday");
+    const name = d === today ? "This morning" : new Date(d + "T12:00").toLocaleDateString(undefined, {weekday: "long"});
+    card.appendChild(el("h3", null, name));
+    if (atL){
+      const head = el("div", "verdict"); const pill = el("span", "pill", "Fog " + fogWord(atL.p)); pill.style.background = fogColour(atL.p);
+      head.appendChild(pill); head.appendChild(el("span", "num", Math.round(100 * atL.p) + "% at " + launch + ":00"));
+      card.appendChild(head);
+      let lift = null;
+      if (atL.p >= 0.15){ const later = hrs.filter(f => f.hour > launch); const k = later.findIndex((f, i) => later.slice(i).every(g => g.p < 0.3)); lift = k >= 0 ? later[k].hour : null; }
+      card.appendChild(el("p", "note", atL.p < 0.15 ? "Clear at launch on this forecast." : lift ? "If it forms, likely to lift by about " + lift + ":00." : "May not lift before 10:00."));
+    }
+    const strip = el("div", "fogstrip");
+    hrs.forEach(f => { const c = el("div", f.hour === launch ? "launch" : null); const sw = el("span", "sw"); sw.style.background = fogColour(f.p);
+      sw.title = f.hour + ":00 · " + Math.round(100 * f.p) + "% chance of fog"; c.appendChild(sw); c.appendChild(el("span", "num", String(f.hour))); strip.appendChild(c); });
+    card.appendChild(strip);
+    grid.appendChild(card);
+  });
+  box.appendChild(grid);
+  const t = CFG.fog_model.test;
+  box.appendChild(el("p", "note", "Chance of fog (visibility under 1 km) each hour, from the forecast's visibility, humidity, wind and low cloud and how damp the evening before was, calibrated on " + CFG.fog_model.airport
+    + "'s fog reports since 2023. Tested on 2025-2026: " + Math.round(100 * t.brier_skill_vs_climatology) + "% better than the usual rate for the month, and on foggy mornings it timed the lifting within an hour "
+    + Math.round(100 * (t.lifting.within_1h || 0)) + "% of the time. It is trained on the airport's fog; the lake can fog when the airport does not, so treat \"possible\" as worth a look out of the window."));
+}
 async function loadWeather(){
   const q = "https://api.open-meteo.com/v1/forecast?latitude=" + POINTS.map(p => p[0]).join(",") + "&longitude=" + POINTS.map(p => p[1]).join(",")
     + "&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m,temperature_2m,precipitation_probability&models=gfs_seamless&wind_speed_unit=ms&timezone=America%2FLos_Angeles&forecast_days=3&past_days=1";
@@ -194,7 +269,8 @@ async function loadAlerts(){
 }
 async function loadAirport(){
   try { const o = (await getJSON("https://api.weather.gov/stations/" + CFG.airport.id + "/observations/latest", {headers: {Accept: "application/geo+json"}})).properties;
-    return o.windSpeed.value == null ? null : {speed: o.windSpeed.value / 3.6, dir: o.windDirection.value, gust: o.windGust.value == null ? null : o.windGust.value / 3.6, at: o.timestamp};
+    return o.windSpeed.value == null ? null : {speed: o.windSpeed.value / 3.6, dir: o.windDirection.value, gust: o.windGust.value == null ? null : o.windGust.value / 3.6, at: o.timestamp,
+            vis: o.visibility ? o.visibility.value : null, text: o.textDescription || ""};
   } catch (e) { return null; }
 }
 let RELAY = null;
@@ -406,6 +482,7 @@ async function start(){
     document.getElementById("updated").textContent = "Forecast loaded " + new Date().toLocaleTimeString(undefined, {hour: "numeric", minute: "2-digit"})
       + (ap ? " · " + CFG.airport.name + " now " + Math.round(ap.speed * MS_MPH) + " mph " + (ap.dir != null ? "from " + compass(ap.dir) : "") + (ap.gust ? ", gusts " + Math.round(ap.gust * MS_MPH) : "") : "");
     setHour(0); loadAlerts(); renderStations(stationList);
+    try { FOG = await loadFog(); } catch (e) { FOG = null; } renderFog(ap);
   } catch (e) {
     document.getElementById("updated").textContent = "Could not load the forecast (" + e.message + "). Check the connection and reload.";
   }
@@ -416,7 +493,8 @@ document.querySelectorAll("[data-layer]").forEach(b => b.addEventListener("click
   document.querySelectorAll("[data-layer]").forEach(x => x.setAttribute("aria-pressed", x === b ? "true" : "false")); drawMap(); }));
 start();
 setInterval(async () => { try { WXRAW = await loadWeather(); const list = await loadStations(); NOW = nowcast(list); applyNowcast();
-  setHour(Math.min(hour, WX[0].time.length - 1)); renderStations(list); } catch (e) {} }, 15 * 60 * 1000);
+  setHour(Math.min(hour, WX[0].time.length - 1)); renderStations(list);
+  try { FOG = await loadFog(); renderFog(await loadAirport()); } catch (e) {} } catch (e) {} }, 15 * 60 * 1000);
 })();
 </script>
 </body>

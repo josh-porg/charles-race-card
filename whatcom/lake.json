@@ -68,5 +68,85 @@
    "lake_level": false
   }
  ],
- "notes": "Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there."
+ "notes": "Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there.",
+ "fog": {
+  "airport": "KBLI",
+  "airport_latlon": [
+   48.7928,
+   -122.5375
+  ]
+ },
+ "fog_model": {
+  "where": "airport",
+  "point": [
+   48.7928,
+   -122.5375
+  ],
+  "features": [
+   "log_vis",
+   "dpd",
+   "rh",
+   "wind",
+   "low_cloud",
+   "fog_code",
+   "hour",
+   "hour2",
+   "season_c",
+   "season_s",
+   "dpd_eve"
+  ],
+  "mean": [
+   4.10108,
+   2.57069,
+   0.84384,
+   2.65154,
+   0.4834,
+   0.04109,
+   0.50059,
+   0.5496,
+   -0.04104,
+   0.02875,
+   4.20505
+  ],
+  "sd": [
+   0.40671,
+   1.83097,
+   0.10255,
+   1.76038,
+   0.44293,
+   0.1985,
+   2.29028,
+   0.51221,
+   0.70163,
+   0.71078,
+   2.49419
+  ],
+  "coef": [
+   -0.88455,
+   -0.158,
+   0.17758,
+   -0.82189,
+   -0.37405,
+   0.27815,
+   0.05047,
+   -0.10506,
+   0.28777,
+   -0.16535,
+   -0.27323
+  ],
+  "intercept": -5.88291,
+  "airport": "KBLI",
+  "fog_definition": "visibility under 1 km (0.62 mile) or FG reported",
+  "test": {
+   "years": "2025-2026",
+   "brier_skill_vs_climatology": 0.466,
+   "auc": 0.973,
+   "base_rate": 0.023,
+   "lifting": {
+    "foggy_mornings": 19,
+    "mean_abs_error_h": 1.105263157894737,
+    "within_1h": 0.8421052631578947
+   }
+  }
+ }
 }
