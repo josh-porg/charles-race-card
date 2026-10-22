@@ -68,6 +68,7 @@ input[type=range]{flex:1;min-width:160px;accent-color:var(--ours)}
 .note{font-size:13.5px;color:var(--muted)}
 @media (prefers-reduced-motion:reduce){*{scroll-behavior:auto}}
 
+[hidden]{display:none !important}
 :root{--c1:#d1495b;--c2:#0e6b7d;--c3:#c58a00;--c4:#5b4fb3;--c5:#2e8b57;--c6:#8c564b}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--c1:#ff6f7f;--c2:#4fc0d4;--c3:#f0b429;--c4:#9d92ff;--c5:#5fc08a;--c6:#c49a8c}}
 :root[data-theme="dark"]{--c1:#ff6f7f;--c2:#4fc0d4;--c3:#f0b429;--c4:#9d92ff;--c5:#5fc08a;--c6:#c49a8c}
@@ -113,9 +114,13 @@ const NS = "http://www.w3.org/2000/svg";
 const K = Object.keys(D.crews);
 const LET = "ABCDEFGH";
 // fresh random letters on every load
-const deal = K.map(k => [k, Math.random()]).sort((a, b) => a[1] - b[1]).map(x => x[0]);
-const letter = {}; deal.forEach((k, i) => letter[k] = LET[i]);
-const colour = {}; deal.forEach((k, i) => colour[k] = "var(--c" + (i + 1) + ")");
+let deal = [];
+const letter = {}, colour = {};
+function shuffle(){                       // fresh letters and colours: on load, and every time names are hidden again
+  deal = K.map(k => [k, Math.random()]).sort((a, b) => a[1] - b[1]).map(x => x[0]);
+  deal.forEach((k, i) => { letter[k] = LET[i]; colour[k] = "var(--c" + (i + 1) + ")"; });
+}
+shuffle();
 let named = false;
 const order = () => named ? K.slice().sort((a, b) => D.crews[a].cox.localeCompare(D.crews[b].cox)) : deal;
 const lab = k => named ? D.crews[k].cox : "Line " + letter[k];
@@ -205,8 +210,8 @@ function best(){
 }
 
 function crews(){
-  const sec = document.getElementById("whos"); sec.hidden = !named; if (!named) return;
-  const t = document.getElementById("crews"); t.textContent = "";
+  const sec = document.getElementById("whos"), t = document.getElementById("crews");
+  t.textContent = ""; sec.hidden = !named; if (!named) return;
   const hr = el("tr"); ["Cox", "Letter this time", "Event", "Bow", "Place", "Official time", "Arches: River St / Western Ave / Weeks"].forEach(h => hr.appendChild(el("th", h))); t.appendChild(hr);
   const A = p => ({"centre": "centre", "Cambridge shore": "Cambridge", "Boston shore": "Boston"}[p] || p || "–");
   order().forEach(k => { const c = D.crews[k], tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(c.cox)); tr.appendChild(td);
@@ -215,11 +220,42 @@ function crews(){
     t.appendChild(tr); });
 }
 
-function render(){ matrix(); profile(); stretch(); best(); crews();
+function steer(){
+  const S_ = D.steer; const sec = document.getElementById("steersec"); if (!S_) return; sec.hidden = false;
+  const O = order(), sets = K, t = document.getElementById("steert"); t.textContent = "";
+  const fastestInt = s => Math.min(...K.map(k => S_.crews[k].intended[s]));
+  const hr = el("tr"); ["Line", "Heading wobble (°)", "at 80 / 320 m cut-off", "Sideways weave (m)", "Steering cost (s)", "Intended line vs fastest intended (s)"].forEach((h, i) => {
+    const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); }); t.appendChild(hr);
+  O.forEach(k => { const c = S_.crews[k], tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
+    const cost = sets.reduce((a, s) => a + c.cost[s], 0) / sets.length;
+    const intd = sets.reduce((a, s) => a + c.intended[s] - fastestInt(s), 0) / sets.length;
+    [c.wobble[String(S_.cutoff)].toFixed(2), c.wobble["80"].toFixed(2) + " / " + c.wobble["320"].toFixed(2), c.lateral.toFixed(2), cost.toFixed(1), f1(intd)]
+      .forEach(v => tr.appendChild(el("td", v, "n"))); t.appendChild(tr); });
+  const agree = Math.max(...K.map(k => S_.crews[k].agree));
+  document.getElementById("steernote").textContent = "Heading wobble and sideways weave: RMS of the steering part at the " + S_.cutoff + " m cut-off; the ranking is the same at 80 and 320 m. " +
+    "Steering cost: the raw track timed minus its intended line, averaged over every setting. Intended line: its time against the fastest intended line in each setting, averaged. " +
+    "The two methods' intended lines agree to within " + (agree * 100).toFixed(0) + " cm. The steering of different lines is " + S_.corr.toFixed(2) +
+    " correlated, so some corrections are shared (everyone adjusts at the same bridges and bends); measured against the course centreline instead it was 0.68 to 0.97, the centreline's own kinks.";
+  const svg = document.getElementById("bands"); svg.textContent = ""; const W = 760, H = 240, x0 = 50, x1 = W - 20, y0 = 14, y1 = H - 34;
+  svg.setAttribute("viewBox", "0 0 " + W + " " + H);
+  const nb = S_.band_labels.length, ymax = Math.max(...K.map(k => Math.max(...S_.crews[k].bands.slice(0, 4)))) * 1.1;
+  const X = i => x0 + i * (x1 - x0) / (nb - 1), Y = v => y1 - Math.min(v, ymax) / ymax * (y1 - y0);
+  for (let g = 0; g <= ymax; g += 0.5) { svg.appendChild(S("line", {x1: x0, x2: x1, y1: Y(g), y2: Y(g), stroke: "var(--line)", "stroke-width": 1}));
+    const tx = S("text", {x: x0 - 6, y: Y(g) + 3, "font-size": 10, "text-anchor": "end", fill: "var(--muted)"}); tx.textContent = g.toFixed(1) + "°"; svg.appendChild(tx); }
+  S_.band_labels.forEach((b, i) => { const tx = S("text", {x: X(i), y: H - 14, "font-size": 10.5, "text-anchor": "middle", fill: "var(--muted)"}); tx.textContent = b + (i === 0 ? " (GPS)" : ""); svg.appendChild(tx); });
+  svg.appendChild(S("rect", {x: x0 - 8, y: y0, width: (x1 - x0) / (nb - 1) / 2 + 8, height: y1 - y0, fill: "var(--line)", opacity: 0.35}));
+  order().forEach(k => { const v = S_.crews[k].bands;
+    svg.appendChild(S("path", {d: "M" + v.map((b, i) => X(i).toFixed(1) + "," + Y(b).toFixed(1)).join("L"), fill: "none", stroke: colour[k], "stroke-width": 2}));
+    v.forEach((b, i) => svg.appendChild(S("circle", {cx: X(i), cy: Y(b), r: 3, fill: colour[k]}))); });
+  const lg = document.getElementById("bandlegend"); lg.textContent = "";
+  order().forEach(k => { const sp = el("span"); sp.appendChild(dot(k)); sp.appendChild(document.createTextNode(lab(k))); lg.appendChild(sp); });
+}
+
+function render(){ matrix(); profile(); stretch(); best(); steer(); crews();
   document.getElementById("blindnote").hidden = named;
   document.getElementById("modeword").textContent = named ? "Names shown" : "Names hidden";
   const b = document.getElementById("names"); b.setAttribute("aria-pressed", String(named)); b.textContent = named ? "Hide names" : "Show names"; }
-document.getElementById("names").addEventListener("click", () => { named = !named; render(); });
+document.getElementById("names").addEventListener("click", () => { named = !named; if (!named) shuffle(); render(); });
 ["showbest", "showshort"].forEach(id => document.getElementById(id).addEventListener("change", profile));
 document.getElementById("setsel").addEventListener("change", stretch);
 render();
