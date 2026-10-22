@@ -234,6 +234,18 @@ function steer(){
     [f1(intd), o.plan.turning_s.toFixed(1), o.plan.peak_rudder_index.toFixed(2), o.steer.seconds.toFixed(1),
      o.steer.weave_m.toFixed(2) + " (" + o.steer.weave_per_length.toFixed(3) + ")", o.steer.wobble_deg.toFixed(2),
      o.steer.corrections_per_km.toFixed(1), o.steer.sparc.toFixed(2)].forEach(v => tr.appendChild(el("td", v, "n"))); t.appendChild(tr); });
+  const B = S_.by_setting, t2 = document.getElementById("steerset"); t2.textContent = "";
+  if (B) {
+    const h2 = el("tr"); h2.appendChild(el("th", "Line"));
+    O.forEach(s => { const th = el("th", setLab(s)); th.style.textAlign = "right";
+      if (named) { th.appendChild(el("br")); const sp = el("span", B[s].boat + ", " + B[s].speed.toFixed(2) + " m/s"); sp.style.textTransform = "none"; th.appendChild(sp); }
+      h2.appendChild(th); });
+    t2.appendChild(h2);
+    O.forEach(k => { const tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
+      O.forEach(s => { const c = B[s].lines[k]; const m = Math.min(...K.map(j => B[s].lines[j].steer_s));
+        tr.appendChild(el("td", c.steer_s.toFixed(1) + " / " + c.plan_turn_s.toFixed(1), "n" + (c.steer_s <= m + 0.01 ? " zero" : ""))); });
+      t2.appendChild(tr); });
+  }
   const agree = Math.max(...K.map(k => S_.crews[k].agree));
   document.getElementById("steernote").textContent = "Intended line: the slow part of the track (changes over more than " + S_.cutoff + " m), timed in every setting against the fastest intended line, averaged. " +
     "Everything else is judged in the crew's own boat at its own speed. Turning built into the plan: the seconds the intended line's turns cost, using the turning loss measured from our boats (speed lost = k × turn rate², k larger for an eight; turn rate = speed / radius, so the cost grows as speed² / radius²). " +
