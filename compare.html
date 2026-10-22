@@ -80,6 +80,11 @@ td.zero{color:var(--gain);font-weight:600}
 .blind{background:var(--river);border-radius:10px;padding:10px 14px;font-size:14px}
 .toggles{display:flex;flex-wrap:wrap;gap:14px;font-size:14px;color:var(--muted)}
 .toggles label{display:flex;gap:6px;align-items:center;cursor:pointer}
+table.heat td:first-child{white-space:nowrap}
+table.heat td.r{text-align:center;font-variant-numeric:tabular-nums;min-width:2.1em;padding-left:4px;padding-right:4px}
+table.heat td.bad{outline:2px solid var(--loss);outline-offset:-3px;font-weight:600}
+table.heat th.w{text-align:center;font-variant-numeric:tabular-nums;padding-left:4px;padding-right:4px}
+ul.loo{margin:6px 0 0;padding-left:20px;font-size:14px;display:grid;gap:4px}
 
 .lock{max-width:420px;margin:12vh auto 0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:12px}
 .lock input{font:inherit;font-size:16px;padding:10px 12px;border:1px solid var(--line);border-radius:8px;background:var(--bg);color:var(--ink)}
@@ -125,6 +130,14 @@ let named = false;
 const order = () => named ? K.slice().sort((a, b) => D.crews[a].cox.localeCompare(D.crews[b].cox)) : deal;
 const lab = k => named ? D.crews[k].cox : "Line " + letter[k];
 const setLab = k => named ? D.crews[k].cox + "'s crew" : "Setting " + letter[k];
+let unlocked = false;
+async function openBlob(url, pass){
+  const b64 = s => Uint8Array.from(atob(s), c => c.charCodeAt(0));
+  const enc = await (await fetch(url, {cache: "no-cache"})).json();
+  const km = await crypto.subtle.importKey("raw", new TextEncoder().encode(pass), "PBKDF2", false, ["deriveKey"]);
+  const key = await crypto.subtle.deriveKey({name: "PBKDF2", salt: b64(enc.salt), iterations: enc.iterations, hash: "SHA-256"}, km, {name: "AES-GCM", length: 256}, false, ["decrypt"]);
+  return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name: "AES-GCM", iv: b64(enc.iv)}, key, b64(enc.data))));
+}
 const f1 = v => (v > 0.05 ? "+" : v < -0.05 ? "−" : "") + Math.abs(v).toFixed(1);
 const mmss = s => { const m = Math.floor(s / 60); return m + ":" + (s - 60 * m).toFixed(1).padStart(4, "0"); };
 const el = (tag, txt, cls) => { const e = document.createElement(tag); if (txt != null) e.textContent = txt; if (cls) e.className = cls; return e; };
@@ -238,7 +251,7 @@ function steer(){
   if (B) {
     const h2 = el("tr"); h2.appendChild(el("th", "Line"));
     O.forEach(s => { const th = el("th", setLab(s)); th.style.textAlign = "right";
-      if (named) { th.appendChild(el("br")); const sp = el("span", B[s].boat + ", " + B[s].speed.toFixed(2) + " m/s"); sp.style.textTransform = "none"; th.appendChild(sp); }
+      if (named) { th.appendChild(el("br")); const sp = el("span", D.crews[s].boat + ", " + D.crews[s].speed.toFixed(2) + " m/s"); sp.style.textTransform = "none"; th.appendChild(sp); }
       h2.appendChild(th); });
     t2.appendChild(h2);
     O.forEach(k => { const tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
@@ -275,7 +288,7 @@ function wind(){
   const O = order(), t = document.getElementById("windt"); t.textContent = "";
   const hr = el("tr"); ["Line", "Wind (m/s)", "Gust (m/s)", "Gust factor", "From", "Felt crosswind (m/s)", "Weave vs crosswind r (p)", "vs gusts r (p)", "Weave explained by wind"].forEach((h, i) => {
     const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); }); t.appendChild(hr);
-  O.forEach(k => { const c = Wd.crews[k], tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k) + (named ? " (" + c.window_et.join("–") + ")" : ""))); tr.appendChild(td);
+  O.forEach(k => { const c = Wd.crews[k], tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k) + (named && D.crews[k].window_et ? " (" + D.crews[k].window_et.join("–") + ")" : ""))); tr.appendChild(td);
     const sig = p => p < 0.05 ? " *" : "";
     [c.mean_wind.toFixed(1), c.mean_gust.toFixed(1), c.gust_factor.toFixed(2), Math.round(c.mean_dir) + "°", c.felt_cross_rms.toFixed(2),
      c.direction.r.toFixed(2) + " (" + c.direction.p.toFixed(3) + ")" + sig(c.direction.p), c.gust_direction.r.toFixed(2) + " (" + c.gust_direction.p.toFixed(3) + ")" + sig(c.gust_direction.p),
@@ -325,14 +338,68 @@ function skill(){
     Math.round(100 * nz) + "% of the steering band for any unit. The best value in each column is marked.";
 }
 
-function render(){ matrix(); profile(); stretch(); best(); steer(); skill(); wind(); crews();
+function windows(){
+  const W = D.windows; if (!W) return; document.getElementById("winsec").hidden = false;
+  const m = document.getElementById("winsel").value || "line_own", M = W.measures[m], L = W.leave_one_out[m], O = order();
+  const unit = {line_own: "s lost to the best line in the window", line_common: "s lost to the best line in the window, averaged over the settings",
+                steer_wobble: "° residual heading wobble", steer_weave: "residual weave per boat length"}[m];
+  const dp = m === "steer_weave" ? 3 : 2, nw = W.windows.length;
+  const rank = j => { const v = K.map(k => [k, M.values[k][j]]).sort((a, b) => a[1] - b[1]); const r = {}; v.forEach(([k], i) => r[k] = i + 1); return r; };
+  const R = W.windows.map((_, j) => rank(j));
+  const t = document.getElementById("wint"); t.textContent = "";
+  const hr = el("tr"); hr.appendChild(el("th", "Line"));
+  W.windows.forEach(w => { const th = el("th", (w[0] / 1000).toFixed(2).replace(/\.?0+$/, ""), "w"); th.title = w[0] + "–" + w[1] + " m"; hr.appendChild(th); });
+  ["Mean rank", "First", "Last"].forEach(h => { const th = el("th", h); th.style.textAlign = "right"; hr.appendChild(th); });
+  t.appendChild(hr);
+  const n = K.length;
+  O.forEach(k => { const tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
+    const bad = new Set((M.bad_patches[k] || []).map(p => p.window[0]));
+    W.windows.forEach((w, j) => { const r = R[j][k], c = el("td", String(r), "r" + (bad.has(w[0]) ? " bad" : ""));
+      c.style.background = "color-mix(in srgb, " + colour[k] + " " + Math.round(70 * (n - r) / (n - 1)) + "%, transparent)";
+      c.title = w[0] + "–" + w[1] + " m: " + M.values[k][j].toFixed(dp) + " " + unit + (bad.has(w[0]) ? " (bad patch)" : ""); tr.appendChild(c); });
+    [M.mean_rank[k].toFixed(1), Math.round(M.rank_first[k] * nw) + " of " + nw, Math.round(M.rank_last[k] * nw) + " of " + nw].forEach(v => tr.appendChild(el("td", v, "n")));
+    t.appendChild(tr); });
+  const names = ord => ord.map(lab).join(", ");
+  const lead = L.changes.every(c => c.order[0] === L.order[0]);
+  document.getElementById("loolead").textContent = "Whole course, best first: " + names(L.order) + ". " +
+    (L.changes.length ? "Dropping any one of " + L.blocks_n + " blocks changes this order for " + L.changes.length + "; " + lab(L.order[0]) + (lead ? " stays first in every case." : " loses first place in at least one.") : "No single block changes it.");
+  const ul = document.getElementById("loo"); ul.textContent = "";
+  L.changes.forEach(c => ul.appendChild(el("li", "Without " + c.block[0] + "–" + c.block[1] + " m: " + names(c.order))));
+  const Wk = x => W.measures[x].kendall_w.toFixed(2);
+  document.getElementById("winlead").textContent = "Each measure recomputed in " + nw + " windows of " + W.win_m + " m, sliding by " + W.step_m + " m, to see whether one stretch (a bad finish, a bridge) is carrying a ranking. " +
+    "Agreement between the windows' rankings (Kendall's W, 1 = every window ranks the lines the same, 0 = no agreement): line choice " + Wk("line_own") + " in own conditions and " + Wk("line_common") + " in every setting; steering " + Wk("steer_wobble") + " for wobble and " + Wk("steer_weave") + " for weave. " +
+    "So the line-choice ranking is partly consistent along the course and the steering ranking mostly is not: differences in steering live in particular stretches, not over the whole race.";
+  document.getElementById("winnote").textContent = "Each cell: the line's rank in that window (1 = best), darker = better; hover for the value (" + unit + "). Columns: the window's start, in km from the start line. " +
+    "Outlined: a bad patch, where the line's gap is more than 2 robust SD above its own median. Steering is the residual after the externals (wind, gusts, bends, width, bridges, traffic) at the whole-course coefficients, so every window is on one scale. " +
+    "First / Last: windows in which the line ranks first / last.";
+}
+
+function render(){ matrix(); profile(); stretch(); best(); steer(); skill(); windows(); wind(); crews();
   document.getElementById("blindnote").hidden = named;
   document.getElementById("modeword").textContent = named ? "Names shown" : "Names hidden";
   const b = document.getElementById("names"); b.setAttribute("aria-pressed", String(named)); b.textContent = named ? "Hide names" : "Show names"; }
-document.getElementById("names").addEventListener("click", () => { named = !named; if (!named) shuffle(); render(); });
+const form = document.getElementById("unlock");
+document.getElementById("names").addEventListener("click", () => {
+  if (named) { named = false; shuffle(); render(); return; }
+  if (unlocked) { named = true; render(); return; }
+  form.hidden = false; document.getElementById("npass").focus();
+});
+document.getElementById("ncancel").addEventListener("click", () => { form.hidden = true; document.getElementById("nerr").textContent = ""; });
+form.addEventListener("submit", async e => {
+  e.preventDefault();
+  const err = document.getElementById("nerr"), go = document.getElementById("ngo");
+  go.disabled = true; err.textContent = "Opening…";
+  try {
+    const N = await openBlob("compare-names.enc", document.getElementById("npass").value.trim());
+    Object.entries(N.crews).forEach(([id, c]) => Object.assign(D.crews[id], c));
+    unlocked = true; named = true; form.hidden = true; err.textContent = ""; document.getElementById("npass").value = ""; render();
+  } catch (x) { err.textContent = "That password did not open the names."; }
+  go.disabled = false;
+});
 ["showbest", "showshort"].forEach(id => document.getElementById(id).addEventListener("change", profile));
 document.getElementById("setsel").addEventListener("change", stretch);
 document.getElementById("windsel").addEventListener("change", wind);
+document.getElementById("winsel").addEventListener("change", windows);
 render();
 })();
 
