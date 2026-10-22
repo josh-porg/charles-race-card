@@ -293,7 +293,39 @@ function wind(){
       if (v != null) { td.style.background = "color-mix(in srgb, var(--best) " + Math.round((1 - v) * 70) + "%, transparent)"; } tr.appendChild(td); }); ct.appendChild(tr); });
 }
 
-function render(){ matrix(); profile(); stretch(); best(); steer(); wind(); crews();
+function skill(){
+  const Q = D.skill; if (!Q) return; document.getElementById("skillsec").hidden = false;
+  const O = order(), t = document.getElementById("skillt"); t.textContent = "";
+  const hr = el("tr"); ["Line", "Line choice: own conditions (s behind best)", "Line choice: all settings (s)", "Planned turning, common boat (s)", "Track smoothness (SPARC)",
+    "Steering: heading wobble, adjusted (°) [95%]", "Steering: weave per boat length, adjusted [95%]", "Passes"].forEach((h, i) => {
+    const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); }); t.appendChild(hr);
+  const best = (obj, k, low) => { const vals = O.map(j => obj(j)); return obj(k) === Math.min(...vals) ? " zero" : ""; };
+  O.forEach(k => { const tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
+    const w = Q.steering.wobble, v = Q.steering.weave_L;
+    const cells = [[Q.line_choice[k].own_conditions_s.toFixed(1), best(j => Q.line_choice[j].own_conditions_s, k)],
+                   [Q.line_choice[k].all_settings_s.toFixed(1), best(j => Q.line_choice[j].all_settings_s, k)],
+                   [Q.plan[k].turning_common_boat_s.toFixed(2), best(j => Q.plan[j].turning_common_boat_s, k)],
+                   [Q.plan[k].sparc.toFixed(2), best(j => -Q.plan[j].sparc, k)],
+                   [w.adjusted[k].toFixed(2) + " [" + w.ci95[k][0].toFixed(2) + ", " + w.ci95[k][1].toFixed(2) + "]", best(j => w.adjusted[j], k)],
+                   [v.adjusted[k].toFixed(3) + " [" + v.ci95[k][0].toFixed(3) + ", " + v.ci95[k][1].toFixed(3) + "]", best(j => v.adjusted[j], k)],
+                   [String(Q.traffic[k].passes), ""]];
+    cells.forEach(([txt, cls]) => tr.appendChild(el("td", txt, "n" + cls))); t.appendChild(tr); });
+  const w = Q.steering.wobble, c = w.coefficients;
+  document.getElementById("skilllead").textContent = "Line choice is where the coxswains differ: " +
+    (Math.max(...O.map(k => Q.line_choice[k].own_conditions_s)) - Math.min(...O.map(k => Q.line_choice[k].own_conditions_s))).toFixed(0) +
+    " s between the closest and furthest from the best line in their own conditions. Steering mostly is not: the course and the conditions explain " +
+    Math.round(100 * w.r2_crews_and_externals) + "% of the heading wobble from stretch to stretch and who was steering about " + Math.round(100 * w.r2_crews_only) +
+    "%; once the externals are held equal, the steering scores' 95% intervals overlap. The biggest external is the bridges: wobble is " + c.bridge.toFixed(1) +
+    "° higher within 75 m of one, as coxswains line up for the arches.";
+  const nz = Math.max(...O.map(k => Q.noise[k].max_noise_share));
+  document.getElementById("skillnote").textContent = "Line choice: the intended line (the track's changes over more than 160 m) timed with the pace fixed and every line in the same boat, against the setting's best line; own conditions = that crew's boat, wind and river; all settings = averaged over every crew's. " +
+    "Planned turning: the intended line's turning cost averaged over the settings (a common boat). Track smoothness: SPARC of the whole track's turn rate. Steering: per 100 m of course, regressed on the felt crosswind (scaled by 1/speed², how far wind pushes a boat), its gust part, the bend, the river's width, a bridge within 75 m, and crews of the same event within 25 m or passing (reconstructed from the start order, a " +
+    Q.start_interval_s.toFixed(1) + " s start interval and every crew's official splits), with one term per crew; the crew term at common externals is the score, intervals from a block bootstrap (500 m blocks). " +
+    "What is fixed per crew cannot be separated from the coxswain by regression, so physics handles it: weave per boat length, drift scaled by speed², turning in a common boat. GPS noise: at most " +
+    Math.round(100 * nz) + "% of the steering band for any unit. The best value in each column is marked.";
+}
+
+function render(){ matrix(); profile(); stretch(); best(); steer(); skill(); wind(); crews();
   document.getElementById("blindnote").hidden = named;
   document.getElementById("modeword").textContent = named ? "Names shown" : "Names hidden";
   const b = document.getElementById("names"); b.setAttribute("aria-pressed", String(named)); b.textContent = named ? "Hide names" : "Show names"; }
