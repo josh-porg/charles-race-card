@@ -92,6 +92,9 @@
   "airport_latlon": [
    47.4931,
    -122.2158
+  ],
+  "cloud_airports": [
+   "KBFI"
   ]
  },
  "fog_model": {
@@ -166,5 +169,138 @@
     "within_1h": 0.8461538461538461
    }
   }
+ },
+ "lake_fog_model": {
+  "features": [
+   "dT",
+   "mix",
+   "dpd",
+   "wind",
+   "low_cloud",
+   "cloud",
+   "log_vis",
+   "dpd_eve",
+   "airport_z",
+   "from_sunrise",
+   "mix_calm",
+   "inv925",
+   "inv850"
+  ],
+  "mean": [
+   5.13803,
+   0.0215,
+   3.78377,
+   1.44705,
+   0.50677,
+   0.61361,
+   4.21315,
+   5.55948,
+   -7.16991,
+   0.33543,
+   0.01109,
+   -1.63296,
+   -5.00134
+  ],
+  "sd": [
+   3.65588,
+   0.0772,
+   2.00466,
+   1.00095,
+   0.46484,
+   0.44062,
+   0.34147,
+   2.91107,
+   1.93168,
+   2.38257,
+   0.04106,
+   3.60726,
+   4.47877
+  ],
+  "coef": [
+   -0.15052,
+   0.16053,
+   -0.3588,
+   -0.17845,
+   0.09114,
+   -0.12857,
+   0.02967,
+   -0.68689,
+   0.74092,
+   -0.19765,
+   0.04889,
+   0.59834,
+   0.24676
+  ],
+  "intercept": -3.48878,
+  "water_station": "KCSAMM",
+  "water_weekly_clim": [
+   8.5,
+   8.3,
+   7.7,
+   7.3,
+   7.2,
+   7.2,
+   7.0,
+   7.0,
+   7.1,
+   7.1,
+   7.3,
+   8.3,
+   8.8,
+   9.8,
+   10.3,
+   12.1,
+   12.8,
+   14.2,
+   16.3,
+   15.9,
+   17.8,
+   18.8,
+   19.7,
+   20.2,
+   20.5,
+   20.9,
+   22.8,
+   23.5,
+   24.3,
+   23.9,
+   23.6,
+   23.9,
+   23.8,
+   23.5,
+   22.7,
+   22.0,
+   21.5,
+   20.4,
+   19.6,
+   18.4,
+   17.8,
+   16.7,
+   15.3,
+   13.8,
+   13.1,
+   12.1,
+   11.2,
+   10.5,
+   9.9,
+   9.5,
+   9.1,
+   8.9
+  ],
+  "test": {
+   "years": "2025-2026",
+   "skill_vs_airport_model": 0.485,
+   "skill_vs_climatology": 0.502,
+   "daylight_auc": 0.956,
+   "daylight_auc_airport": 0.932,
+   "buoy_detector_auc": 0.983,
+   "foggy_mornings_per_year": {
+    "2023": 59,
+    "2024": 37,
+    "2025": 39,
+    "2026": 28
+   }
+  },
+  "label": "fog on the water at the buoy: a detector from the buoy's humidity (against its saturation reading), wind and water-air temperature, calibrated in daylight on sun dimmed to <= 55% of clear sky with no airport ceiling below 5000 ft (or airport fog), applied to every practice hour"
  }
 }

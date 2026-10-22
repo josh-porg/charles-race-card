@@ -16,6 +16,7 @@ from datetime import datetime, timedelta, timezone
 LAKES = json.load(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "lakes.json")))
 UA = {"User-Agent": "Lake rowing conditions relay (github.com/josh-porg/charles-race-card); a few stations every 15 min"}
 FIELDS = ["t", "temp_f", "dir", "mph", "gust_mph"]
+WATER = {}                                           # the buoy's latest water temperature, per lake buoy
 
 
 COMPASS = {n: 22.5 * i for i, n in enumerate("N NNE NE ENE E ESE SE SSE S SSW SW WSW W WNW NW NNW".split())}
@@ -29,6 +30,13 @@ def kingcounty(call):
     out = []
     for rec in txt.split("^"):
         f = [x.strip() for x in rec.strip().lstrip("|").split("|")]
+        if len(f) >= 10 and f[0] == "Sammamish" and f[5] and f[6]:
+            # water temperature near the surface (deg C) and its time: the lake fog model needs the water
+            try:
+                tw = datetime.strptime(f[6], "%m/%d/%Y %I:%M:%S %p") + timedelta(hours=7)
+                WATER[call] = dict(water_c=float(f[5]), water_t=tw.replace(tzinfo=timezone.utc).isoformat())
+            except ValueError:
+                pass
         if len(f) >= 10 and f[0] == "Sammamish" and f[1]:
             t = datetime.strptime(f[1], "%m/%d/%Y %I:%M:%S %p") + timedelta(hours=7)
             d = COMPASS.get(f[4].replace("from", "").strip().upper())
@@ -72,7 +80,14 @@ def relay_lake(outdir, stations):
             except ValueError:
                 pass
         obs = [o for o in obs if datetime.fromisoformat(o[0]) > datetime.now(timezone.utc) - timedelta(hours=6)]
-        live["stations"][call] = dict(meta, obs=obs)
+        live["stations"][call] = dict(meta, obs=obs, **WATER.get(call, {}))
+        if call in WATER:
+            wp = os.path.join(outdir, "history", call + "_water.csv")
+            line = "%s,%.2f\n" % (WATER[call]["water_t"], WATER[call]["water_c"])
+            new_file = not os.path.exists(wp)
+            if new_file or open(wp).read().splitlines()[-1:] != [line.strip()]:
+                with open(wp, "a") as fh:
+                    fh.write(("t,water_c\n" if new_file else "") + line)
         have = set()
         if os.path.exists(path):
             have = {line.split(",", 1)[0] for line in open(path)}

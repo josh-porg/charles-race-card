@@ -119,7 +119,7 @@ td.n{text-align:right;font-family:var(--mono)}
     <h3>How this works, and what it does not know</h3>
     <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and the nearest airport's latest observation for comparison. Lakeside home weather stations (Citizen Weather Observer Program), relayed every 15 minutes; when they show the lake running windier or calmer than forecast, the next three hours are adjusted (calibrated on two months of their history). Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
     <p class="note">Guide values for shells: under 10 cm smooth; 10 to 20 cm workable; 20 to 30 cm rough, experienced crews and bigger boats; over 30 cm or gusts over 30 mph, stay off in small boats. They are starting points, not rules: you know your boats and your crews.</p>
-    <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Fog: see its own note above. Water temperature is not published live: from late autumn to spring the water is cold enough to be the bigger risk. Routes are approximate. <span id="lakenote"></span></p>
+    <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Fog: see its own note above. Where the lake has a buoy that reports the water temperature, the fog outlook uses it; from late autumn to spring the water is cold enough to be the bigger risk. Routes are approximate. <span id="lakenote"></span></p>
   </div>
   <p class="note">Map data © OpenStreetMap contributors. Terrain: USGS 3DEP. Forecast: Open-Meteo (NOAA HRRR, GFS). Alerts and observations: National Weather Service. Model: coxswain simulator lake tools.</p>
 </div>
@@ -185,12 +185,47 @@ function corrU(u, d){
 }
 // ---- fog: the calibrated morning model (lake.json fog_model; data/local/lakes/fog_calibrate.py) ----
 let FOG = null, launch = (() => { try { return Number(localStorage.getItem("launch") || 5); } catch (e) { return 5; } })();
+// lake fog (lake.json lake_fog_model; data/local/lakes/lake_fog.py): the water under the air. Warm water under cold air
+// pooled in the valley makes steam fog on the lake when the airports are clear.
+let FOGINFO = null;
+const esat = T => 6.112 * Math.exp(17.67 * T / (T + 243.5));
+function mixingExcess(Ta, Td, Tw){        // Saunders: most supersaturated point (hPa) on the air-to-water mixing line
+  let best = -1e9;
+  for (let k = 0; k <= 100; k++){ const f = k / 100, T = f * Tw + (1 - f) * Ta, e = f * esat(Tw) + (1 - f) * esat(Td); best = Math.max(best, e - esat(T)); }
+  return best;
+}
+function sunElev(ms, lat, lon){           // solar elevation (deg) at a UTC time in ms (NOAA's approximation)
+  const d = new Date(ms), n = Math.floor((ms - Date.UTC(d.getUTCFullYear(), 0, 1)) / 864e5) + 1;
+  const g = 2 * Math.PI / 365 * (n - 1 + (d.getUTCHours() - 12) / 24);
+  const decl = 0.006918 - 0.399912 * Math.cos(g) + 0.070257 * Math.sin(g) - 0.006758 * Math.cos(2 * g) + 0.000907 * Math.sin(2 * g);
+  const eqt = 229.18 * (0.000075 + 0.001868 * Math.cos(g) - 0.032077 * Math.sin(g) - 0.014615 * Math.cos(2 * g) - 0.040849 * Math.sin(2 * g));
+  const ha = ((d.getUTCHours() * 60 + d.getUTCMinutes() + eqt + 4 * lon) / 4 - 180) * Math.PI / 180, la = lat * Math.PI / 180;
+  return Math.asin(Math.sin(la) * Math.sin(decl) + Math.cos(la) * Math.cos(decl) * Math.cos(ha)) * 180 / Math.PI;
+}
+async function lakeWater(L){
+  // the buoy's latest reading through the relay if under three days old, else the usual for the week
+  try {
+    const d = await getJSON(RELAY + "?w=" + Math.floor(Date.now() / 900000), {cache: "no-store"}), s = d.stations[L.water_station];
+    if (s && s.water_c != null && Date.now() - Date.parse(s.water_t) < 3 * 864e5) return {c: s.water_c, src: "buoy"};
+  } catch (e) {}
+  const now = new Date(), doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 864e5);
+  return {c: L.water_weekly_clim[Math.min(Math.floor((doy - 1) / 7), 51)], src: "usual"};
+}
 async function loadFog(){
   const m = CFG.fog_model; if (!m) return null;
+  const L = CFG.lake_fog_model;
   const q = "https://api.open-meteo.com/v1/forecast?latitude=" + m.point[0] + "&longitude=" + m.point[1]
-    + "&hourly=visibility,temperature_2m,dew_point_2m,relative_humidity_2m,cloud_cover_low,wind_speed_10m,weather_code&models=gfs_seamless&timezone=America%2FLos_Angeles&past_days=1&forecast_days=3";
-  const h = (await getJSON(q)).hourly;
+    + "&hourly=visibility,temperature_2m,dew_point_2m,relative_humidity_2m,cloud_cover_low,cloud_cover,wind_speed_10m,weather_code,temperature_925hPa,temperature_850hPa"
+    + "&models=gfs_seamless&timezone=America%2FLos_Angeles&past_days=1&forecast_days=3";
+  const resp = await getJSON(q), h = resp.hourly, off = resp.utc_offset_seconds * 1000;
+  const W = L ? await lakeWater(L) : null;
   const idx = {}; h.time.forEach((t, i) => idx[t] = i);
+  const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
+  const sunriseOf = {};
+  const sunrise = day => {                 // local sunrise as UTC ms, searched as lake_fog.py does
+    if (sunriseOf[day] == null){ let t = Date.parse(day + "T04:00:00Z") - off; while (sunElev(t, m.point[0], m.point[1]) < -0.833 && t < Date.parse(day + "T11:00:00Z") - off) t += 120000; sunriseOf[day] = t; }
+    return sunriseOf[day];
+  };
   const out = [];
   h.time.forEach((t, i) => {
     const hr = Number(t.slice(11, 13)); if (hr < 3 || hr > 10) return;
@@ -198,13 +233,25 @@ async function loadFog(){
     const d = new Date(t.slice(0, 10) + "T12:00"), doy = Math.round((d - new Date(d.getFullYear(), 0, 0)) / 864e5);
     const prev = new Date(d.getTime() - 864e5).toISOString().slice(0, 10) + "T21:00", e = idx[prev];
     const dpdEve = e != null && h.temperature_2m[e] != null ? h.temperature_2m[e] - h.dew_point_2m[e] : 5;
-    const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
     const x = [Math.log10(clamp(h.visibility[i], 50, 30000)), clamp(h.temperature_2m[i] - h.dew_point_2m[i], 0, 10), h.relative_humidity_2m[i] / 100,
                clamp((h.wind_speed_10m[i] || 0) / 3.6, 0, 15), (h.cloud_cover_low[i] || 0) / 100, [45, 48].includes(h.weather_code[i]) ? 1 : 0,
                hr - 6, (hr - 6) * (hr - 6) / 10, Math.cos(2 * Math.PI * doy / 365.25), Math.sin(2 * Math.PI * doy / 365.25), clamp(dpdEve, 0, 10)];
     let z = m.intercept; x.forEach((v, k) => { z += m.coef[k] * (v - m.mean[k]) / m.sd[k]; });
-    out.push({day: t.slice(0, 10), hour: hr, p: 1 / (1 + Math.exp(-z)), vis: h.visibility[i]});
+    let p = 1 / (1 + Math.exp(-z)), mix = null;
+    if (L && W && W.c != null){
+      const Ta = h.temperature_2m[i], Td = h.dew_point_2m[i], Tw = W.c, wind = clamp((h.wind_speed_10m[i] || 0) / 3.6, 0, 15);
+      mix = mixingExcess(Ta, Td, Tw);
+      const tm = Date.parse(t + ":00Z") - off + 1800000;
+      const T925 = h.temperature_925hPa ? h.temperature_925hPa[i] : null, T850 = h.temperature_850hPa ? h.temperature_850hPa[i] : null;
+      const y = [Tw - Ta, mix, clamp(Ta - Td, 0, 10), wind, (h.cloud_cover_low[i] || 0) / 100, (h.cloud_cover ? h.cloud_cover[i] || 0 : 0) / 100,
+                 Math.log10(clamp(h.visibility[i], 50, 30000)), clamp(dpdEve, 0, 10), z, clamp((tm - sunrise(t.slice(0, 10))) / 3600000, -5, 4), mix / (1 + wind),
+                 clamp((T925 != null ? T925 : Ta) - Ta, -5, 15), clamp((T850 != null ? T850 : Ta - 8) - Ta, -15, 15)];
+      let zl = L.intercept; y.forEach((v, k) => { zl += L.coef[k] * (v - L.mean[k]) / L.sd[k]; });
+      p = 1 / (1 + Math.exp(-zl));
+    }
+    out.push({day: t.slice(0, 10), hour: hr, p, vis: h.visibility[i], ta: h.temperature_2m[i], inv: h.temperature_925hPa ? h.temperature_925hPa[i] - h.temperature_2m[i] : null});
   });
+  FOGINFO = W;
   return out;
 }
 function fogWord(p){ return p >= 0.7 ? "very likely" : p >= 0.4 ? "likely" : p >= 0.15 ? "possible" : "unlikely"; }
@@ -217,6 +264,7 @@ function renderFog(airportNow){
   for (let h = 4; h <= 9; h++){ const o = el("option", null, h + ":00 am"); o.value = h; if (h === launch) o.selected = true; sel.appendChild(o); }
   sel.addEventListener("change", () => { launch = Number(sel.value); try { localStorage.setItem("launch", launch); } catch (e) {} renderFog(airportNow); });
   bar.appendChild(sel);
+  if (FOGINFO && FOGINFO.c != null) bar.appendChild(el("span", "muted", "Water " + FOGINFO.c.toFixed(1) + " °C" + (FOGINFO.src === "buoy" ? " (buoy)" : " (usual for the week)")));
   if (airportNow && airportNow.vis != null) bar.appendChild(el("span", "muted", CFG.airport.name + " now: visibility " + (airportNow.vis >= 16000 ? "10+ miles" : (airportNow.vis / 1609).toFixed(1) + " mi") + (airportNow.text ? " · " + airportNow.text : "")));
   box.appendChild(bar);
   if (!FOG || !FOG.length){ box.appendChild(el("p", "note", "The fog outlook is not available just now.")); return; }
@@ -235,6 +283,12 @@ function renderFog(airportNow){
       let lift = null;
       if (atL.p >= 0.15){ const later = hrs.filter(f => f.hour > launch); const k = later.findIndex((f, i) => later.slice(i).every(g => g.p < 0.3)); lift = k >= 0 ? later[k].hour : null; }
       card.appendChild(el("p", "note", atL.p < 0.15 ? "Clear at launch on this forecast." : lift ? "If it forms, likely to lift by about " + lift + ":00." : "May not lift before 10:00."));
+      if (FOGINFO && FOGINFO.c != null && atL.ta != null){
+        const dT = FOGINFO.c - atL.ta, why = [];
+        if (dT >= 6) why.push("the water is " + Math.round(dT) + " °C warmer than the air (steam fog)");
+        if (atL.inv != null && atL.inv >= 4) why.push("warm air aloft traps the cold air in the valley (" + Math.round(atL.inv) + " °C inversion)");
+        if (why.length && atL.p >= 0.15) card.appendChild(el("p", "note", "Why: " + why.join("; ") + "."));
+      }
     }
     const strip = el("div", "fogstrip");
     hrs.forEach(f => { const c = el("div", f.hour === launch ? "launch" : null); const sw = el("span", "sw"); sw.style.background = fogColour(f.p);
@@ -243,7 +297,15 @@ function renderFog(airportNow){
     grid.appendChild(card);
   });
   box.appendChild(grid);
-  const t = CFG.fog_model.test;
+  const t = CFG.fog_model.test, Lm = CFG.lake_fog_model;
+  if (Lm && FOGINFO){ const lt = Lm.test;
+    box.appendChild(el("p", "note", "Chance of fog on the water each hour. The lake fogs when the airports do not: in autumn the water stays warm while cold air drains off the hills and pools over it, and the water steams. "
+      + "So this model uses the lake's water temperature (King County's buoy), the forecast air and dew point, the mixing of the two (Saunders' steam-fog criterion), the wind, the warm air aloft that traps the cold pool, cloud, and how damp the evening before was. "
+      + "It is calibrated on the buoy itself since 2023: fog is saturated air on the water, confirmed in daylight by the sun dimming at the buoy while the airports stay clear. "
+      + "Tested on " + lt.years + ": " + Math.round(100 * lt.skill_vs_airport_model) + "% better than the airport-trained model and " + Math.round(100 * lt.skill_vs_climatology) + "% better than the usual rate. "
+      + "The buoy is in the south basin, so fog at the north end by the river can come and go at different times."));
+    return;
+  }
   box.appendChild(el("p", "note", "Chance of fog (visibility under 1 km) each hour, from the forecast's visibility, humidity, wind and low cloud and how damp the evening before was, calibrated on " + CFG.fog_model.airport
     + "'s fog reports since 2023. Tested on 2025-2026: " + Math.round(100 * t.brier_skill_vs_climatology) + "% better than the usual rate for the month, and on foggy mornings it timed the lifting within an hour "
     + Math.round(100 * (t.lifting.within_1h || 0)) + "% of the time. It is trained on the airport's fog; the lake can fog when the airport does not, so treat \"possible\" as worth a look out of the window."));
