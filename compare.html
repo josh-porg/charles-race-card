@@ -270,13 +270,37 @@ function steer(){
   order().forEach(k => { const sp = el("span"); sp.appendChild(dot(k)); sp.appendChild(document.createTextNode(lab(k))); lg.appendChild(sp); });
 }
 
-function render(){ matrix(); profile(); stretch(); best(); steer(); crews();
+function wind(){
+  const Wd = D.wind; if (!Wd) return; document.getElementById("windsec").hidden = false;
+  const O = order(), t = document.getElementById("windt"); t.textContent = "";
+  const hr = el("tr"); ["Line", "Wind (m/s)", "Gust (m/s)", "Gust factor", "From", "Felt crosswind (m/s)", "Weave vs crosswind r (p)", "vs gusts r (p)", "Weave explained by wind"].forEach((h, i) => {
+    const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); }); t.appendChild(hr);
+  O.forEach(k => { const c = Wd.crews[k], tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k) + (named ? " (" + c.window_et.join("–") + ")" : ""))); tr.appendChild(td);
+    const sig = p => p < 0.05 ? " *" : "";
+    [c.mean_wind.toFixed(1), c.mean_gust.toFixed(1), c.gust_factor.toFixed(2), Math.round(c.mean_dir) + "°", c.felt_cross_rms.toFixed(2),
+     c.direction.r.toFixed(2) + " (" + c.direction.p.toFixed(3) + ")" + sig(c.direction.p), c.gust_direction.r.toFixed(2) + " (" + c.gust_direction.p.toFixed(3) + ")" + sig(c.gust_direction.p),
+     Math.max(c.perturbation_share.excess * 100, 0).toFixed(1) + "%"].forEach(v => tr.appendChild(el("td", v, "n"))); t.appendChild(tr); });
+  const sigk = O.filter(k => Wd.crews[k].direction.p < 0.05 || Wd.crews[k].gust_direction.p < 0.05);
+  const sg = Wd.segments;
+  document.getElementById("windlead").textContent = "Every crew raced in much the same gusty wind (gust factor " +
+    Math.min(...O.map(k => Wd.crews[k].gust_factor)).toFixed(2) + "–" + Math.max(...O.map(k => Wd.crews[k].gust_factor)).toFixed(2) + "). " +
+    (sigk.length ? "Only " + sigk.map(lab).join(" and ") + " shows weave with the wind's sign (marked *), so part of it was the wind pushing the boat; for the others the weave carries no detectable wind signature, which points to steering. " : "No line's weave carries a detectable wind signature. ") +
+    "Across 100 m stretches, heading wobble did not rise with the felt crosswind (slope " + sg.felt_crosswind.slope.toFixed(2) + " ± " + sg.felt_crosswind.se.toFixed(2) + " deg per m/s) or with gusts, and stretches nearer a bank were not steered straighter. Shelter depends on which shore: see the table below.";
+  const sel = document.getElementById("windsel"), X = Wd.cross[sel.value], ct = document.getElementById("crosst"); ct.textContent = "";
+  const h2 = el("tr"); h2.appendChild(el("th", "Stretch")); Wd.offsets.forEach(o => { const th = el("th", (o > 0 ? "+" : "") + o); th.style.textAlign = "right"; h2.appendChild(th); }); ct.appendChild(h2);
+  X.forEach(r => { const tr = el("tr"); tr.appendChild(el("td", r.stretch));
+    r.profile.forEach(v => { const td = el("td", v == null ? "–" : v.toFixed(2), "n");
+      if (v != null) { td.style.background = "color-mix(in srgb, var(--best) " + Math.round((1 - v) * 70) + "%, transparent)"; } tr.appendChild(td); }); ct.appendChild(tr); });
+}
+
+function render(){ matrix(); profile(); stretch(); best(); steer(); wind(); crews();
   document.getElementById("blindnote").hidden = named;
   document.getElementById("modeword").textContent = named ? "Names shown" : "Names hidden";
   const b = document.getElementById("names"); b.setAttribute("aria-pressed", String(named)); b.textContent = named ? "Hide names" : "Show names"; }
 document.getElementById("names").addEventListener("click", () => { named = !named; if (!named) shuffle(); render(); });
 ["showbest", "showshort"].forEach(id => document.getElementById(id).addEventListener("change", profile));
 document.getElementById("setsel").addEventListener("change", stretch);
+document.getElementById("windsel").addEventListener("change", wind);
 render();
 })();
 
