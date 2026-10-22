@@ -80,10 +80,17 @@ td.zero{color:var(--gain);font-weight:600}
 .blind{background:var(--river);border-radius:10px;padding:10px 14px;font-size:14px}
 .toggles{display:flex;flex-wrap:wrap;gap:14px;font-size:14px;color:var(--muted)}
 .toggles label{display:flex;gap:6px;align-items:center;cursor:pointer}
-table.heat td:first-child{white-space:nowrap}
+td:first-child{white-space:nowrap}
 table.heat td.r{text-align:center;font-variant-numeric:tabular-nums;min-width:2.1em;padding-left:4px;padding-right:4px}
 table.heat td.bad{outline:2px solid var(--loss);outline-offset:-3px;font-weight:600}
 table.heat th.w{text-align:center;font-variant-numeric:tabular-nums;padding-left:4px;padding-right:4px}
+#rivermap{width:100%;height:auto;display:block}
+#rivermap text{font-size:12px;fill:var(--ink)}
+#rivermap .tick{fill:var(--muted);font-size:11px}
+.focus{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px;font-size:14px;margin-top:8px}
+.focus ol{margin:4px 0 0;padding-left:20px;display:grid;gap:3px}
+.scale{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted)}
+.scale i{display:inline-block;width:120px;height:10px;border-radius:5px;background:linear-gradient(90deg,var(--gain),color-mix(in srgb,var(--gain) 50%,var(--loss)),var(--loss))}
 ul.loo{margin:6px 0 0;padding-left:20px;font-size:14px;display:grid;gap:4px}
 
 .lock{max-width:420px;margin:12vh auto 0;background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px;display:flex;flex-direction:column;gap:12px}
@@ -374,7 +381,160 @@ function windows(){
     "First / Last: windows in which the line ranks first / last.";
 }
 
-function render(){ matrix(); profile(); stretch(); best(); steer(); skill(); windows(); wind(); crews();
+function rivermap(){
+  const W = D.windows, G = D.map; if (!W || !G) return;
+  const m = document.getElementById("winsel").value || "line_own", M = W.measures[m];
+  const sel = document.getElementById("mapsel"), cur = K.includes(sel.value) ? sel.value : order()[0]; sel.textContent = "";
+  order().forEach(k => { const o = el("option", lab(k)); o.value = k; sel.appendChild(o); }); sel.value = cur;
+  const k = cur, n = K.length, P = 250;
+  // each 250 m piece: the line's mean rank over the windows that cover it
+  const rk = W.windows.map((_, j) => { const v = K.map(q => [q, M.values[q][j]]).sort((a, b) => a[1] - b[1]); const r = {}; v.forEach(([q], i) => r[q] = i + 1); return r; });
+  const pieces = [];
+  for (let a = 0; a < G.length - 1; a += P) {
+    const b = Math.min(a + P, G.length), js = W.windows.map((w, j) => [w, j]).filter(([w]) => w[0] <= a + 1e-6 && w[1] >= b - 1e-6).map(([, j]) => j);
+    let use = js.length ? js : W.windows.map((w, j) => [w, j]).filter(([w]) => w[0] < b && w[1] > a).map(([, j]) => j);
+    if (!use.length) use = [W.windows.length - 1];          // past the last window's end
+    pieces.push({a, b, r: use.reduce((s, j) => s + rk[j][k], 0) / use.length});
+  }
+  const svg = document.getElementById("rivermap"); svg.textContent = "";
+  const xs = G.px.concat(G.sx), ys = G.py.concat(G.sy);
+  const x0 = Math.min(...xs), x1 = Math.max(...xs), y0 = Math.min(...ys), y1 = Math.max(...ys);
+  const Wd = 900, pad = 110, sc = (Wd - 2 * pad) / (x1 - x0), Hd = (y1 - y0) * sc + 2 * 60;
+  const X = x => pad + (x - x0) * sc, Y = y => 60 + (y1 - y) * sc;
+  svg.setAttribute("viewBox", "0 0 " + Wd + " " + Hd.toFixed(0));
+  const pts = (ax, ay) => ax.map((x, i) => X(x).toFixed(1) + "," + Y(ay[i]).toFixed(1));
+  svg.appendChild(S("polygon", {points: pts(G.px, G.py).concat(pts(G.sx, G.sy).reverse()).join(" "), fill: "var(--river)", stroke: "var(--bank)", "stroke-width": 1}));
+  const at = mm => { let i = 0; while (i < G.st.length - 1 && G.st[i + 1] < mm) i++; const f = Math.min(1, Math.max(0, (mm - G.st[i]) / ((G.st[i + 1] - G.st[i]) || 1))); return [G.cx[i] + f * (G.cx[Math.min(i + 1, G.st.length - 1)] - G.cx[i]), G.cy[i] + f * (G.cy[Math.min(i + 1, G.st.length - 1)] - G.cy[i]), i]; };
+  const col = r => { const t = Math.round(100 * (r - 1) / (n - 1)); return "color-mix(in srgb, var(--loss) " + t + "%, var(--gain))"; };
+  // bad patches as a dashed band beside the course
+  (M.bad_patches[k] || []).forEach(p => {
+    const sel_ = G.st.map((s, i) => [s, i]).filter(([s]) => s >= p.window[0] && s <= p.window[1]).map(([, i]) => i);
+    if (sel_.length < 2) return;
+    svg.appendChild(S("polyline", {points: sel_.map(i => X(G.px[i]).toFixed(1) + "," + Y(G.py[i]).toFixed(1)).join(" "), fill: "none", stroke: "var(--loss)", "stroke-width": 3, "stroke-dasharray": "6 4"}));
+  });
+  pieces.forEach(p => {
+    const sel_ = G.st.map((s, i) => [s, i]).filter(([s]) => s >= p.a && s <= p.b).map(([, i]) => i);
+    const ends = [at(p.a), at(p.b)].map(([x, y]) => X(x).toFixed(1) + "," + Y(y).toFixed(1));
+    const ln = S("polyline", {points: [ends[0]].concat(sel_.map(i => X(G.cx[i]).toFixed(1) + "," + Y(G.cy[i]).toFixed(1)), [ends[1]]).join(" "), fill: "none", "stroke-width": 9, "stroke-linecap": "butt", "stroke-linejoin": "round"});
+    ln.style.stroke = col(p.r);
+    const t = S("title", {}); t.textContent = p.a + "–" + p.b + " m: mean rank " + p.r.toFixed(1) + " of " + n; ln.appendChild(t); svg.appendChild(ln);
+  });
+  // km ticks on the course, landmarks off it, alternating sides
+  for (let mm = 0; mm <= G.length; mm += 500) {
+    const [x, y] = at(mm); svg.appendChild(S("circle", {cx: X(x), cy: Y(y), r: 2.5, fill: "var(--ink)"}));
+    const tx = S("text", {x: X(x) + 5, y: Y(y) - 7, class: "tick"}); tx.textContent = (mm / 1000).toFixed(1) + " km"; svg.appendChild(tx);
+  }
+  G.marks.forEach((mk, i) => {
+    const [, , j] = at(mk.m), j2 = Math.min(j + 1, G.st.length - 1), j1 = Math.max(j2 - 2, 0);
+    const hx = G.cx[j2] - G.cx[j1], hy = G.cy[j2] - G.cy[j1], h = Math.hypot(hx, hy) || 1;
+    const sgn = i % 2 ? 1 : -1, nx = -hy / h * sgn, ny = hx / h * sgn;
+    const px = X(mk.x) + nx * 34, py = Y(mk.y) - ny * 34;
+    svg.appendChild(S("line", {x1: X(mk.x), y1: Y(mk.y), x2: px, y2: py, stroke: "var(--muted)", "stroke-width": 1}));
+    const tx = S("text", {x: px + (nx >= 0 ? 3 : -3), y: py + (ny > 0 ? -2 : 11), "text-anchor": nx >= 0 ? "start" : "end"}); tx.textContent = mk.name; svg.appendChild(tx);
+  });
+  const near = mm => { let b = G.marks[0]; G.marks.forEach(q => { if (Math.abs(q.m - mm) < Math.abs(b.m - mm)) b = q; }); return Math.abs(b.m - mm) < 60 ? "at " + b.name : (b.m > mm ? "before " : "after ") + b.name; };
+  const desc = p => p.a + "–" + p.b + " m (" + near((p.a + p.b) / 2) + "), rank " + p.r.toFixed(1);
+  const sorted = pieces.slice().sort((a, b) => b.r - a.r);
+  const fb = document.getElementById("focusbad"), fg = document.getElementById("focusgood"); fb.textContent = ""; fg.textContent = "";
+  sorted.slice(0, 4).forEach(p => fb.appendChild(el("li", desc(p))));
+  sorted.slice(-3).reverse().forEach(p => fg.appendChild(el("li", desc(p))));
+  document.getElementById("mapnote").textContent = "The course from the start (downstream, right) to the finish, north up. Each 250 m is coloured by " + lab(k) +
+    "'s mean rank among the " + n + " lines over the 1000 m windows that cover it, in the measure chosen above (green best, red worst); hover a piece for its rank. " +
+    "Dashed red beside the course: this line's bad patches. Work on / Strengths: its worst and best 250 m pieces, named by the nearest landmark.";
+}
+
+function adapt(){
+  const A = D.adapt; if (!A) return; document.getElementById("adaptsec").hidden = false;
+  const O = order(), N = A.nominal, t = document.getElementById("adaptt"); t.textContent = "";
+  const lowest = f => Math.min(...O.map(f));
+  const hr = el("tr"); ["Line", "Lost to the conditions, nominal runs (s)", "Against a typical response (s)", "Run-to-run spread (s)", "10th–90th percentile (s)",
+    "Its own race: own vs typical response (s)", "Costliest condition in its race"].forEach((h, i) => { const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); });
+  t.appendChild(hr);
+  const cname = {cross_drift: "crosswind", gust: "gusts", passing: "passing", passed: "being passed", near: "side by side"};
+  O.forEach(k => { const n = N[k], r = A.realised[k], tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
+    const worst = Object.entries(r.by_condition_s).sort((a, b) => b[1] - a[1])[0];
+    [[n.mean_s.toFixed(1) + " [" + n.mean_ci95[0].toFixed(0) + ", " + n.mean_ci95[1].toFixed(0) + "]", n.mean_s === lowest(j => N[j].mean_s)],
+     [f1(n.rel_mean_s) + " [" + f1(n.rel_ci95[0]) + ", " + f1(n.rel_ci95[1]) + "]", n.rel_mean_s === lowest(j => N[j].rel_mean_s)],
+     [n.sd_s.toFixed(1), n.sd_s === lowest(j => N[j].sd_s)],
+     [n.p10_s.toFixed(1) + " – " + n.p90_s.toFixed(1), false],
+     [r.own_response_s.toFixed(1) + " vs " + r.typical_response_s.toFixed(1), false],
+     [worst[1] > 0.05 ? cname[worst[0]] + " (" + worst[1].toFixed(1) + " s)" : "none above 0.1 s", false]].forEach(([v, b]) => tr.appendChild(el("td", v, "n" + (b ? " zero" : ""))));
+    t.appendChild(tr); });
+  // distributions
+  const svg = document.getElementById("adapth"); svg.textContent = "";
+  const E = A.hist_edges, Wd = 760, Hd = 240, ml = 48, mr = 14, mt = 10, mb = 36;
+  svg.setAttribute("viewBox", "0 0 " + Wd + " " + Hd);
+  const tot = A.n_runs, ymax = Math.max(...O.map(k => Math.max(...N[k].hist))) / tot;
+  const X = v => ml + (v - E[0]) / (E[E.length - 1] - E[0]) * (Wd - ml - mr), Y = v => mt + (1 - v / ymax) * (Hd - mt - mb);
+  const rg = E[E.length - 1] - E[0], step = rg > 40 ? 10 : rg > 12 ? 5 : rg > 4 ? 1 : rg > 1.5 ? 0.5 : 0.25;
+  for (let v = Math.ceil(E[0] / step) * step; v <= E[E.length - 1] + 1e-9; v += step) {
+    svg.appendChild(S("line", {x1: X(v), x2: X(v), y1: mt, y2: Hd - mb, stroke: "var(--line)", "stroke-width": 1}));
+    const tx = S("text", {x: X(v), y: Hd - mb + 16, "text-anchor": "middle", fill: "var(--muted)", "font-size": 12}); tx.textContent = +v.toFixed(2) + " s"; svg.appendChild(tx);
+  }
+  svg.appendChild(S("line", {x1: ml, x2: Wd - mr, y1: Hd - mb, y2: Hd - mb, stroke: "var(--muted)", "stroke-width": 1}));
+  const yl = S("text", {x: 4, y: mt + 10, fill: "var(--muted)", "font-size": 12}); yl.textContent = "share"; svg.appendChild(yl);
+  O.forEach(k => { const h = N[k].hist; let d = "M" + X(E[0]) + "," + Y(0);
+    h.forEach((c, i) => { d += " L" + X(E[i]).toFixed(1) + "," + Y(c / tot).toFixed(1) + " L" + X(E[i + 1]).toFixed(1) + "," + Y(c / tot).toFixed(1); });
+    d += " L" + X(E[E.length - 1]) + "," + Y(0);
+    const p = S("path", {d: d, fill: "none", "stroke-width": 2}); p.style.stroke = colour[k]; svg.appendChild(p); });
+  const lg = document.getElementById("adaptleg"); lg.textContent = ""; O.forEach(k => { const sp = el("span"); sp.appendChild(dot(k)); sp.appendChild(document.createTextNode(lab(k))); lg.appendChild(sp); });
+  const C_ = A.conditions_summary, best_ = O.slice().sort((a, b) => N[a].rel_mean_s - N[b].rel_mean_s);
+  const overlap = O.every(k => N[k].rel_ci95[0] < 0 && N[k].rel_ci95[1] > 0);
+  const span = Math.max(...O.map(k => Math.abs(N[k].mean_s))), pooledAll = A.lam >= 1000;
+  document.getElementById("adaptlead").textContent = "How much time the conditions cost each crew through the steering they forced, and how much that varies, measured on " + A.n_runs.toLocaleString() +
+    " nominal runs: synthetic races built Monte Carlo style from the day's weather and real HOCR fields, every line rowing the same draws. " +
+    "The answer is: very little, and the same for everyone. Crosswind, gusts and traffic changed the time lost to steering by less than " + (Math.ceil(span * 2 + 0.01) / 2).toFixed(1) + " s a race for every coxswain (slightly negative: steering a little less in those conditions), varying by about " +
+    Math.max(...O.map(k => N[k].sd_s)).toFixed(1) + " s from one set of conditions to another" +
+    (pooledAll ? "; cross-validation preferred one shared response for all five coxswains over any coxswain-specific one, so these races do not show anyone adapting better or worse than the others." :
+     "; " + lab(best_[0]) + " loses least against a typical response (" + f1(N[best_[0]].rel_mean_s) + " s)" + (overlap ? ", but every interval includes zero." : "."));
+  document.getElementById("adaptnote").textContent = "Method: the conditions cost a crew time through the extra steering they force. Per 100 m, the mean squared turn rate of the steering part of the track (the weave about the intended line) is regressed on the conditions a coxswain manages: " +
+    "felt crosswind (scaled by 1/speed², how far it pushes the boat), gusts, passing, being passed and a crew within 25 m, each crew with its own slopes shrunk towards the pooled ones (partial pooling, strength by cross-validation), with the stroke rate, headwind, bridges, bends and the river's width as controls. " +
+    "Seconds from the measured turning loss (speed lost = k × turn rate², the four's k for every crew, so the seconds compare coxswains, not boats). Speed itself was tried as the measure and set aside: a crew passes because it is faster and rows harder into the wind, so speed cannot separate the response from its causes. " +
+    "Nominal runs: weather from a random start between 08:00 and 17:00 (one-minute ASOS, felt on the course with the banks' shelter; crosswind " + C_.cross_ms[0].toFixed(1) + "–" + C_.cross_ms[1].toFixed(1) +
+    " m/s and gusts " + C_.gust_ms[0].toFixed(1) + "–" + C_.gust_ms[1].toFixed(1) + " m/s above the mean, 10th–90th percentile of the run averages), traffic from one of four real HOCR 2026 fields with the crew at a random bow and pace within it (" +
+    C_.passes_per_race[0] + "–" + C_.passes_per_race[1] + " passes and " + C_.passed_per_race[0] + "–" + C_.passed_per_race[1] + " times passed per race). " +
+    "Seconds at a common 19:00 pace. Typical response: the pooled slopes on the same runs. Intervals: 500 m block bootstrap of the fit. Own race: the conditions it met, its own response against the typical one. The best in each column is marked.";
+}
+
+function operator(){
+  const P = D.operator; if (!P) return; document.getElementById("opsec").hidden = false;
+  const O = order(), t = document.getElementById("opt"); t.textContent = "";
+  const hr = el("tr"); ["Line", "Gain K (1/s)", "Aim point D (m)", "Delay τ (s): whole / halves", "Lead / lag (s)", "Crossover ωc (rad/s)", "Phase margin (°)", "Effective delay (s)",
+    "Halves: ωc", "ARX peak lag (s)", "Heading anticipation vs optimal", "Correction threshold (°)", "Between corrections (s)"].forEach((h, i) => { const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); });
+  t.appendChild(hr);
+  const fx = (v, d) => v == null ? "–" : Number(v).toFixed(d);
+  O.forEach(k => { const c = P[k], a = c.A, p = a.params, tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
+    [fx(p.K, 2), fx(p.D, 0), fx(p.tau, 1) + " / " + fx(a.halves.first.tau, 1) + ", " + fx(a.halves.second.tau, 1), fx(p.T_L, 1) + " / " + fx(p.T_I, 1),
+     fx(a.wc, 2), fx(a.pm_deg, 0), fx(a.tau_e, 1), fx(a.halves.first.wc, 2) + " / " + fx(a.halves.second.wc, 2),
+     fx(c.B.peak_lag_s, 1), fx(c.C.anticipation, 2), fx(c.D.threshold_deg, 1), fx(c.D.interval_s, 0)].forEach(v => tr.appendChild(el("td", v, "n")));
+    t.appendChild(tr); });
+  const svg = document.getElementById("opstep"); svg.textContent = "";
+  const Wd = 760, Hd = 240, ml = 44, mr = 14, mt = 10, mb = 34;
+  svg.setAttribute("viewBox", "0 0 " + Wd + " " + Hd);
+  const all = O.flatMap(k => P[k].A.step.map(r => r[1])), lo = Math.min(-1, ...all), hi = Math.max(5.5, ...all), T = P[O[0]].A.step[P[O[0]].A.step.length - 1][0];
+  const X = v => ml + v / T * (Wd - ml - mr), Y = v => mt + (hi - v) / (hi - lo) * (Hd - mt - mb);
+  for (let v = 0; v <= T; v += 15) { svg.appendChild(S("line", {x1: X(v), x2: X(v), y1: mt, y2: Hd - mb, stroke: "var(--line)"}));
+    const tx = S("text", {x: X(v), y: Hd - mb + 16, "text-anchor": "middle", fill: "var(--muted)", "font-size": 12}); tx.textContent = v + " s"; svg.appendChild(tx); }
+  for (let v = Math.ceil(lo); v <= hi; v += 1) { const tx = S("text", {x: ml - 6, y: Y(v) + 4, "text-anchor": "end", fill: "var(--muted)", "font-size": 12}); tx.textContent = v + " m"; svg.appendChild(tx); }
+  svg.appendChild(S("line", {x1: ml, x2: Wd - mr, y1: Y(0), y2: Y(0), stroke: "var(--muted)", "stroke-dasharray": "4 3"}));
+  O.forEach(k => { const p = S("polyline", {points: P[k].A.step.map(r => X(r[0]).toFixed(1) + "," + Y(r[1]).toFixed(1)).join(" "), fill: "none", "stroke-width": 2}); p.style.stroke = colour[k]; svg.appendChild(p); });
+  const lg = document.getElementById("opleg"); lg.textContent = ""; O.forEach(k => { const sp = el("span"); sp.appendChild(dot(k)); sp.appendChild(document.createTextNode(lab(k))); lg.appendChild(sp); });
+  const wc = O.map(k => P[k].A.wc).filter(v => v != null), te = O.map(k => P[k].A.tau_e).filter(v => v != null);
+  document.getElementById("oplead").textContent = "Each coxswain fitted as a human operator in McRuer's crossover model: they aim at a point ahead, react after a delay (entered through a Padé approximant), and add lead or lag. " +
+    "Crossover frequencies " + Math.min(...wc).toFixed(2) + "–" + Math.max(...wc).toFixed(2) + " rad/s and effective delays " + Math.min(...te).toFixed(1) + "–" + Math.max(...te).toFixed(1) +
+    " s: slow loops with small phase margins, the signature of a weave. " +
+    "Every coxswain also uses less heading anticipation than an optimal controller would pair with their lateral correction (" + Math.min(...O.map(k => P[k].C.anticipation)).toFixed(2) + "–" + Math.max(...O.map(k => P[k].C.anticipation)).toFixed(2) +
+    " of optimal): each corrects the offset without enough regard for the heading already taking the boat back, so it overshoots. That is the most coachable finding here. The reaction delay itself is not resolvable from per-stroke GPS: its fits move between the race's halves.";
+  document.getElementById("opnote").textContent = "A, crossover model (McRuer & Jex 1967), fitted by maximum likelihood with a Kalman filter on the per-stroke track: error e = heading off the intended line + lateral offset / D (an aim point D m ahead); " +
+    "command = −K e^(−τs)(T_L s + 1)/(T_I s + 1) e, the delay by the first-order Padé approximant (1 − τs/2)/(1 + τs/2); the boat turns with a first-order lag; wind, wash and stream as a random lateral drift; remnant as white noise. " +
+    "Delay: the whole race's fit and each half's; where they disagree the delay is not identified (one GPS fix per stroke, about 2 s apart). Crossover frequency, phase margin and effective delay: from the open loop with the exact delay; a larger crossover means tighter tracking, a larger phase margin smoother, less oscillatory corrections. Halves: the crossover refitted on each half of the race (stability of the fit). " +
+    "B, ARX kernel: the heading change per stroke regressed on the error at lags of 0–6 strokes; the lag of the strongest response. " +
+    "C, optimal-control check (after Kleinman, Baron & Levison 1970): holding the coxswain's gain on lateral offset, the heading gain an optimal (LQR) controller would use for the same boat; anticipation = the coxswain's heading gain over that. Below 1: too little heading anticipation (overshoot); 1: optimal. " +
+    "D, intermittent control (Gawthrop et al. 2011): steering as discrete corrections; the error at which a correction becomes likely (logistic fit), and the median time between them. " +
+    "Per-stroke GPS (about one fix every 2 s) cannot resolve reaction times under a second, so delays are those of the whole loop (seeing the drift, the rudder, the boat's yaw), not reflexes.";
+}
+
+function render(){ matrix(); profile(); stretch(); best(); steer(); skill(); windows(); rivermap(); adapt(); operator(); wind(); crews();
   document.getElementById("blindnote").hidden = named;
   document.getElementById("modeword").textContent = named ? "Names shown" : "Names hidden";
   const b = document.getElementById("names"); b.setAttribute("aria-pressed", String(named)); b.textContent = named ? "Hide names" : "Show names"; }
@@ -399,7 +559,8 @@ form.addEventListener("submit", async e => {
 ["showbest", "showshort"].forEach(id => document.getElementById(id).addEventListener("change", profile));
 document.getElementById("setsel").addEventListener("change", stretch);
 document.getElementById("windsel").addEventListener("change", wind);
-document.getElementById("winsel").addEventListener("change", windows);
+document.getElementById("winsel").addEventListener("change", () => { windows(); rivermap(); });
+document.getElementById("mapsel").addEventListener("change", rivermap);
 render();
 })();
 
