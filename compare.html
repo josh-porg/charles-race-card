@@ -145,7 +145,7 @@ function matrix(){
   O.forEach(k => { const tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
     O.forEach(s => { const d = delta(s, k); tr.appendChild(el("td", f1(d), "n" + (d < 0.05 ? " zero" : ""))); });
     tr.appendChild(el("td", f1(means[k]), "n best")); t.appendChild(tr); });
-  [["best", "Best line (that setting's own arches)"], ["shortest", "Shortest legal line (bestline.row3r.com)"]].forEach(([ln, name]) => {
+  [["best", "Best line (Radau optimum, that setting's own arches)"], ["shortest", "Shortest legal line (bestline.row3r.com)"]].forEach(([ln, name]) => {
     const tr = el("tr"); tr.appendChild(el("td", name));
     O.forEach(s => tr.appendChild(el("td", f1(delta(s, ln)), "n")));
     tr.appendChild(el("td", f1(O.reduce((a, s) => a + delta(s, ln), 0) / O.length), "n")); t.appendChild(tr); });
@@ -161,15 +161,17 @@ function matrix(){
 function profile(){
   const svg = document.getElementById("prof"); svg.textContent = "";
   const P = D.profile, W = 760, H = 320, x0 = 46, x1 = W - 10, y0 = 18, y1 = H - 28;
-  const smax = P.s[P.s.length - 1], omax = Math.max(...P.half_width) + 5;
+  const smax = P.s[P.s.length - 1], omax = Math.max(...P.hi.map(Math.abs), ...P.lo.map(Math.abs)) + 5;
   const X = s => x0 + (s / smax) * (x1 - x0), Y = o => y0 + (1 - (o + omax) / (2 * omax)) * (y1 - y0);
   svg.setAttribute("viewBox", "0 0 " + W + " " + H);
-  let d = "M" + P.s.map((s, i) => X(s).toFixed(1) + "," + Y(P.half_width[i]).toFixed(1)).join("L");
-  d += "L" + P.s.slice().reverse().map((s, i) => X(s).toFixed(1) + "," + Y(-P.half_width[P.s.length - 1 - i]).toFixed(1)).join("L") + "Z";
+  let d = "M" + P.s.map((s, i) => X(s).toFixed(1) + "," + Y(P.hi[i]).toFixed(1)).join("L");
+  d += "L" + P.s.slice().reverse().map((s, i) => X(s).toFixed(1) + "," + Y(P.lo[P.s.length - 1 - i]).toFixed(1)).join("L") + "Z";
   svg.appendChild(S("path", {d: d, fill: "var(--river)"}));
   svg.appendChild(S("line", {x1: x0, x2: x1, y1: Y(0), y2: Y(0), stroke: "var(--bank)", "stroke-width": 0.6, "stroke-dasharray": "3 4"}));
+  let lastX = -1e9, row = 0;
   P.bridges.forEach(b => { svg.appendChild(S("line", {x1: X(b.s), x2: X(b.s), y1: y0, y2: y1, stroke: "var(--bank)", "stroke-width": 0.6, "stroke-dasharray": "2 3"}));
-    const t = S("text", {x: X(b.s) + 3, y: y0 + 10, "font-size": 10, fill: "var(--muted)"}); t.textContent = b.name.replace(" Footbridge", "").replace(" Bridge", ""); svg.appendChild(t); });
+    row = X(b.s) - lastX < 70 ? row + 1 : 0; lastX = X(b.s);           // stack labels of bridges close together
+    const t = S("text", {x: X(b.s) + 3, y: y0 + 10 + 11 * row, "font-size": 10, fill: "var(--muted)"}); t.textContent = b.name.replace(" Footbridge", "").replace(" Bridge", "").replace("Grand Junction RR", "Railway"); svg.appendChild(t); });
   [-40, -20, 0, 20, 40].forEach(o => { const t = S("text", {x: x0 - 6, y: Y(o) + 3, "font-size": 10, "text-anchor": "end", fill: "var(--muted)"}); t.textContent = (o > 0 ? "+" : "") + o; svg.appendChild(t); });
   const tb = S("text", {x: x0, y: H - 6, "font-size": 10.5, fill: "var(--muted)"}); tb.textContent = "Cambridge side ↓   Boston side ↑   (m from centreline; km along the course →)"; svg.appendChild(tb);
   const line = (vals, col, dash, w) => svg.appendChild(S("path", {d: "M" + P.s.map((s, i) => X(s).toFixed(1) + "," + Y(vals[i]).toFixed(1)).join("L"),
@@ -224,16 +226,21 @@ function steer(){
   const S_ = D.steer; const sec = document.getElementById("steersec"); if (!S_) return; sec.hidden = false;
   const O = order(), sets = K, t = document.getElementById("steert"); t.textContent = "";
   const fastestInt = s => Math.min(...K.map(k => S_.crews[k].intended[s]));
-  const hr = el("tr"); ["Line", "Heading wobble (°)", "at 80 / 320 m cut-off", "Sideways weave (m)", "Steering cost (s)", "Intended line vs fastest intended (s)"].forEach((h, i) => {
+  const hr = el("tr"); ["Line", "Intended line vs fastest intended (s)", "Turning built into the plan (s)", "Tightest planned turn (L/R)",
+    "Steering cost (s)", "Weave (m, × boat length)", "Heading wobble (°)", "Corrections per km", "Smoothness (SPARC)"].forEach((h, i) => {
     const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); }); t.appendChild(hr);
-  O.forEach(k => { const c = S_.crews[k], tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
-    const cost = sets.reduce((a, s) => a + c.cost[s], 0) / sets.length;
+  O.forEach(k => { const c = S_.crews[k], o = c.own, tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
     const intd = sets.reduce((a, s) => a + c.intended[s] - fastestInt(s), 0) / sets.length;
-    [c.wobble[String(S_.cutoff)].toFixed(2), c.wobble["80"].toFixed(2) + " / " + c.wobble["320"].toFixed(2), c.lateral.toFixed(2), cost.toFixed(1), f1(intd)]
-      .forEach(v => tr.appendChild(el("td", v, "n"))); t.appendChild(tr); });
+    [f1(intd), o.plan.turning_s.toFixed(1), o.plan.peak_rudder_index.toFixed(2), o.steer.seconds.toFixed(1),
+     o.steer.weave_m.toFixed(2) + " (" + o.steer.weave_per_length.toFixed(3) + ")", o.steer.wobble_deg.toFixed(2),
+     o.steer.corrections_per_km.toFixed(1), o.steer.sparc.toFixed(2)].forEach(v => tr.appendChild(el("td", v, "n"))); t.appendChild(tr); });
   const agree = Math.max(...K.map(k => S_.crews[k].agree));
-  document.getElementById("steernote").textContent = "Heading wobble and sideways weave: RMS of the steering part at the " + S_.cutoff + " m cut-off; the ranking is the same at 80 and 320 m. " +
-    "Steering cost: the raw track timed minus its intended line, averaged over every setting. Intended line: its time against the fastest intended line in each setting, averaged. " +
+  document.getElementById("steernote").textContent = "Intended line: the slow part of the track (changes over more than " + S_.cutoff + " m), timed in every setting against the fastest intended line, averaged. " +
+    "Everything else is judged in the crew's own boat at its own speed. Turning built into the plan: the seconds the intended line's turns cost, using the turning loss measured from our boats (speed lost = k × turn rate², k larger for an eight; turn rate = speed / radius, so the cost grows as speed² / radius²). " +
+    "Tightest planned turn: boat length / radius, which sets the rudder angle a turn needs. Steering cost: the extra turning and distance of the actual track over its intended line, in that boat. " +
+    "Weave: sideways RMS of the steering part, also as a fraction of the boat's length. Heading wobble: RMS of the fast heading. Corrections per km: reversals of the fast heading beyond 0.5°. " +
+    "SPARC: spectral arc length of the turn rate per 500 m (Balasubramanian et al. 2015), closer to zero is smoother. " +
+    "Because these are judged in each crew's own boat, the eight stands out in the plan columns (a longer boat needs more rudder for the same turn), even in blind mode. " +
     "The two methods' intended lines agree to within " + (agree * 100).toFixed(0) + " cm. The steering of different lines is " + S_.corr.toFixed(2) +
     " correlated, so some corrections are shared (everyone adjusts at the same bridges and bends); measured against the course centreline instead it was 0.68 to 0.97, the centreline's own kinks.";
   const svg = document.getElementById("bands"); svg.textContent = ""; const W = 760, H = 240, x0 = 50, x1 = W - 20, y0 = 14, y1 = H - 34;
