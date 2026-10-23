@@ -465,9 +465,11 @@ function adapt(){
   const E = A.hist_edges, Wd = 760, Hd = 240, ml = 48, mr = 14, mt = 10, mb = 36;
   svg.setAttribute("viewBox", "0 0 " + Wd + " " + Hd);
   const tot = A.n_runs, ymax = Math.max(...O.map(k => Math.max(...N[k].hist))) / tot;
-  const X = v => ml + (v - E[0]) / (E[E.length - 1] - E[0]) * (Wd - ml - mr), Y = v => mt + (1 - v / ymax) * (Hd - mt - mb);
-  const rg = E[E.length - 1] - E[0], step = rg > 40 ? 10 : rg > 12 ? 5 : rg > 4 ? 1 : rg > 1.5 ? 0.5 : 0.25;
-  for (let v = Math.ceil(E[0] / step) * step; v <= E[E.length - 1] + 1e-9; v += step) {
+  // at least -2 to +2 s, so differences of a fraction of a second are not drawn as if they were large
+  const x0 = Math.min(E[0], -2), x1 = Math.max(E[E.length - 1], 2);
+  const X = v => ml + (v - x0) / (x1 - x0) * (Wd - ml - mr), Y = v => mt + (1 - v / ymax) * (Hd - mt - mb);
+  const rg = x1 - x0, step = rg > 40 ? 10 : rg > 12 ? 5 : rg > 4 ? 1 : 0.5;
+  for (let v = Math.ceil(x0 / step) * step; v <= x1 + 1e-9; v += step) {
     svg.appendChild(S("line", {x1: X(v), x2: X(v), y1: mt, y2: Hd - mb, stroke: "var(--line)", "stroke-width": 1}));
     const tx = S("text", {x: X(v), y: Hd - mb + 16, "text-anchor": "middle", fill: "var(--muted)", "font-size": 12}); tx.textContent = +v.toFixed(2) + " s"; svg.appendChild(tx);
   }
@@ -485,7 +487,8 @@ function adapt(){
     " nominal runs: synthetic races built Monte Carlo style from the day's weather and real HOCR fields, every line rowing the same draws. " +
     "The answer is: very little, and the same for everyone. Crosswind, gusts and traffic changed the time lost to steering by less than " + (Math.ceil(span * 2 + 0.01) / 2).toFixed(1) + " s a race for every coxswain (slightly negative: steering a little less in those conditions), varying by about " +
     Math.max(...O.map(k => N[k].sd_s)).toFixed(1) + " s from one set of conditions to another" +
-    (pooledAll ? "; cross-validation preferred one shared response for all five coxswains over any coxswain-specific one, so these races do not show anyone adapting better or worse than the others." :
+    (pooledAll ? "; cross-validation preferred one shared response for all " + K.length + " coxswains over any coxswain-specific one, so these races do not show anyone adapting better or worse than the others. " +
+     "How to read the chart: further left loses less time, narrower is more consistent. With one shared response, the small shifts between the curves come only from differences in boat speed (the model scales the crosswind by how fast each boat goes), not from steering, and they are a few tenths of a second: no curve here is better or worse in a way that matters." :
      "; " + lab(best_[0]) + " loses least against a typical response (" + f1(N[best_[0]].rel_mean_s) + " s)" + (overlap ? ", but every interval includes zero." : "."));
   document.getElementById("adaptnote").textContent = "Method: the conditions cost a crew time through the extra steering they force. Per 100 m, the mean squared turn rate of the steering part of the track (the weave about the intended line) is regressed on the conditions a coxswain manages: " +
     "felt crosswind (scaled by 1/speed², how far it pushes the boat), gusts, passing, being passed and a crew within 25 m, each crew with its own slopes shrunk towards the pooled ones (partial pooling, strength by cross-validation), with the stroke rate, headwind, bridges, bends and the river's width as controls. " +
@@ -499,15 +502,25 @@ function adapt(){
 function operator(){
   const P = D.operator; if (!P) return; document.getElementById("opsec").hidden = false;
   const O = order(), t = document.getElementById("opt"); t.textContent = "";
-  const hr = el("tr"); ["Line", "Gain K (1/s)", "Aim point D (m)", "Delay τ (s): whole / halves", "Lead / lag (s)", "Crossover ωc (rad/s)", "Phase margin (°)", "Effective delay (s)",
-    "Halves: ωc", "ARX peak lag (s)", "Heading anticipation vs optimal", "Correction threshold (°)", "Between corrections (s)"].forEach((h, i) => { const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); });
+  const hr = el("tr"); ["Line", "Cost of a 5 m correction (s)", "Back within 1 m (s)", "Overshoot (m)", "Heading anticipation vs optimal", "Phase margin (°)",
+    "Gain K (1/s)", "Aim point D (m)", "Delay τ (s): whole / halves", "Lead / lag (s)", "Crossover ωc (rad/s)", "Effective delay (s)",
+    "Halves: ωc", "ARX peak lag (s)", "Correction threshold (°)", "Between corrections (s)"].forEach((h, i) => { const th = el("th", h); if (i) th.style.textAlign = "right"; hr.appendChild(th); });
   t.appendChild(hr);
   const fx = (v, d) => v == null ? "–" : Number(v).toFixed(d);
-  O.forEach(k => { const c = P[k], a = c.A, p = a.params, tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
-    [fx(p.K, 2), fx(p.D, 0), fx(p.tau, 1) + " / " + fx(a.halves.first.tau, 1) + ", " + fx(a.halves.second.tau, 1), fx(p.T_L, 1) + " / " + fx(p.T_I, 1),
-     fx(a.wc, 2), fx(a.pm_deg, 0), fx(a.tau_e, 1), fx(a.halves.first.wc, 2) + " / " + fx(a.halves.second.wc, 2),
-     fx(c.B.peak_lag_s, 1), fx(c.C.anticipation, 2), fx(c.D.threshold_deg, 1), fx(c.D.interval_s, 0)].forEach(v => tr.appendChild(el("td", v, "n")));
+  const M_ = k => P[k].A.step_metrics || {}, minOf = f => Math.min(...O.map(j => f(j) == null ? Infinity : f(j)));
+  const bestCost = minOf(k => M_(k).cost_s), bestOver = minOf(k => M_(k).overshoot_m), bestAnt = minOf(k => Math.abs(1 - P[k].C.anticipation)), bestPM = -minOf(k => -P[k].A.pm_deg);
+  O.forEach(k => { const c = P[k], a = c.A, p = a.params, m_ = M_(k), tr = el("tr"); const td = el("td"); td.appendChild(dot(k)); td.appendChild(document.createTextNode(lab(k))); tr.appendChild(td);
+    [[fx(m_.cost_s, 2), m_.cost_s === bestCost], [m_.settle_s == null ? "over 90" : fx(m_.settle_s, 0), false], [fx(m_.overshoot_m, 1), m_.overshoot_m === bestOver],
+     [fx(c.C.anticipation, 2), Math.abs(1 - c.C.anticipation) === bestAnt], [fx(a.pm_deg, 0), a.pm_deg === bestPM],
+     [fx(p.K, 2)], [fx(p.D, 0)], [fx(p.tau, 1) + " / " + fx(a.halves.first.tau, 1) + ", " + fx(a.halves.second.tau, 1)], [fx(p.T_L, 1) + " / " + fx(p.T_I, 1)],
+     [fx(a.wc, 2)], [fx(a.tau_e, 1)], [fx(a.halves.first.wc, 2) + " / " + fx(a.halves.second.wc, 2)],
+     [fx(c.B.peak_lag_s, 1)], [fx(c.D.threshold_deg, 1)], [fx(c.D.interval_s, 0)]].forEach(([v, b]) => tr.appendChild(el("td", v, "n" + (b ? " zero" : ""))));
     t.appendChild(tr); });
+  document.getElementById("opguide").textContent = "How to read it: what matters in a race is the time a correction costs, and that comes from turning, not from being off the line. " +
+    "Being a few metres to one side of the line you meant costs almost nothing in open water; every hard turn costs speed (speed lost grows with the square of the turn rate), and an overshoot means turning twice. " +
+    "So a slow, smooth correction with little overshoot is usually the cheaper one, and a fast correction that overshoots is the most expensive. " +
+    "Fast still matters where position matters: lining up for an arch, holding a buoy line, getting out of another crew's way; a correction that takes more than about a minute leaves the boat off line for a whole bridge approach. " +
+    "Best values are marked: the cheapest correction, the least overshoot, the heading anticipation closest to optimal (1.00), and the largest phase margin (the least oscillatory loop).";
   const svg = document.getElementById("opstep"); svg.textContent = "";
   const Wd = 760, Hd = 240, ml = 44, mr = 14, mt = 10, mb = 34;
   svg.setAttribute("viewBox", "0 0 " + Wd + " " + Hd);
