@@ -117,7 +117,7 @@ td.n{text-align:right;font-family:var(--mono)}
   <div class="card" id="sections"></div>
   <div class="card">
     <h3>How this works, and what it does not know</h3>
-    <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and the nearest airport's latest observation for comparison. Lakeside home weather stations (Citizen Weather Observer Program), relayed every 15 minutes; when they show the lake running windier or calmer than forecast, the next three hours are adjusted (calibrated on two months of their history). Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
+    <p class="note">Wind: the HRRR and GFS forecasts (Open-Meteo) at three points along the lake, blended by distance; the wind arrow shows the middle point. National Weather Service alerts for the lake, and the nearest airport's latest observation for comparison. Lakeside home weather stations (Citizen Weather Observer Program), read live when the page opens; when they show the lake running windier or calmer than forecast, the next three hours are adjusted (calibrated on two months of their history). Floathaven Airstrip (WA90) has no weather instruments, so there is nothing to read there. For each spot on the lake and each wind direction the page knows how much open water lies upwind (the fetch, past the islands and points), how much the forested shore and the hills just upwind take out of the wind, and so how big the wind-blown chop grows (fetch-limited wave growth). Chop is the significant wave height: the bigger third of the waves.</p>
     <p class="note">Guide values for shells: under 10 cm smooth; 10 to 20 cm workable; 20 to 30 cm rough, experienced crews and bigger boats; over 30 cm or gusts over 30 mph, stay off in small boats. They are starting points, not rules: you know your boats and your crews.</p>
     <p class="note">Not known: there is no live wind sensor on the lake, so the hills' channelling of the wind along the valley is only as good as the 3 km forecast; the shelter of the hills is an estimate. Fog: see its own note above. Where the lake has a buoy that reports the water temperature, the fog outlook uses it; from late autumn to spring the water is cold enough to be the bigger risk. Routes are approximate. <span id="lakenote"></span></p>
   </div>
@@ -205,7 +205,7 @@ function sunElev(ms, lat, lon){           // solar elevation (deg) at a UTC time
 async function lakeWater(L){
   // the buoy's latest reading through the relay if under three days old, else the usual for the week
   try {
-    const d = await getJSON(RELAY + "?w=" + Math.floor(Date.now() / 900000), {cache: "no-store"}), s = d.stations[L.water_station];
+    const d = (await stationFeed()).d, s = d.stations[L.water_station];
     if (s && s.water_c != null && Date.now() - Date.parse(s.water_t) < 3 * 864e5) return {c: s.water_c, src: "buoy"};
   } catch (e) {}
   const now = new Date(), doy = Math.floor((now - new Date(now.getFullYear(), 0, 0)) / 864e5);
@@ -335,13 +335,27 @@ async function loadAirport(){
             vis: o.visibility ? o.visibility.value : null, text: o.textDescription || ""};
   } catch (e) { return null; }
 }
-let RELAY = null;
+let RELAY = null, FEED = null;
 let CAL = null, NOW = null, useLive = true, WXRAW = null;
-// the lakeside stations: the relay (findu, minutes old) first, the National Weather Service (hours old) if it is down
+// the lakeside stations' readings, kept four minutes: read live through the Worker (lake.json "live",
+// relay/live_worker.js; minutes old) when it answers, else the relay's last file (relay/lake_relay.py; GitHub runs it a few times a day)
+async function stationFeed(){
+  if (FEED && Date.now() - FEED.at < 240000) return FEED.p;
+  const p = (async () => {
+    if (CFG.live) try {
+      return {via: "live", d: await getJSON(CFG.live, {cache: "no-store", signal: AbortSignal.timeout(12000)})};
+    } catch (e) {}
+    return {via: "relay", d: await getJSON(RELAY + "?t=" + Math.floor(Date.now() / 300000), {cache: "no-store"})};
+  })();
+  FEED = {at: Date.now(), p};
+  p.catch(() => { FEED = null; });
+  return p;
+}
+// the lakeside stations: live or the relay first, the National Weather Service (hours old) if both are down
 async function loadStations(){
   try {
-    const d = await getJSON(RELAY + "?t=" + Math.floor(Date.now() / 300000), {cache: "no-store"});
-    return Object.entries(d.stations).map(([id, s]) => ({id, name: s.name, lat: s.lat, lon: s.lon, via: "relay", source: s.source || "cwop",
+    const {via, d} = await stationFeed();
+    return Object.entries(d.stations).map(([id, s]) => ({id, name: s.name, lat: s.lat, lon: s.lon, via, source: s.source || "cwop",
       obs: s.obs.map(o => ({t: Date.parse(o[0]), speed: o[1] * 0.44704, dir: o[2], gust: o[3] == null ? null : o[3] * 0.44704})).sort((x, y) => y.t - x.t)}));
   } catch (e) {}
   const out = [];
@@ -375,7 +389,7 @@ function nowcast(list){
   const now = Date.now(); let lw = 0, ls = 0; const used = [];
   list.forEach(st => {
     const c = CAL.stations[st.id], w = (CAL.weights || {})[st.id] || 0;
-    if (!c || !w || !st.obs.length || st.via !== "relay") return;
+    if (!c || !w || !st.obs.length || st.via === "nws") return;
     const hourly = st.source === "kingcounty" || /buoy/i.test(st.name);
     const recent = st.obs.filter(o => now - o.t < (hourly ? 150 : 65) * 60000); if (recent.length < (hourly ? 1 : 2)) return;
     const fc = forecastAt(st.lat, st.lon, now), fd = forecastAt(st.lat, st.lon, now, "dir");
@@ -397,10 +411,14 @@ function applyNowcast(){
 function renderStations(list){
   const box = document.getElementById("stations"); box.textContent = "";
   box.appendChild(el("h2", null, "On the lake: weather stations"));
-  const relay = list.some(s => s.via === "relay");
-  box.appendChild(el("p", "muted", relay
-    ? "Home weather stations at the lakeside, relayed from the Citizen Weather Observer Program every 15 minutes. They sit low among trees and houses, so they read well under the open-water wind; the page compares each with what the calibrated model expects at that spot."
-    : "Home weather stations at the lakeside, as the National Weather Service relays them, about four hours late (the live relay is not reachable just now)."));
+  const via = list.some(s => s.via === "live") ? "live" : list.some(s => s.via === "relay") ? "relay" : "nws";
+  const newest = Math.max(...list.filter(s => s.source !== "kingcounty").map(s => s.obs.length ? s.obs[0].t : 0)), age = Math.round((Date.now() - newest) / 60000);
+  const sited = " They sit low among trees and houses, so they read well under the open-water wind; the page compares each with what the calibrated model expects at that spot.";
+  box.appendChild(el("p", "muted", via === "live"
+    ? "Home weather stations at the lakeside, read from the Citizen Weather Observer Program when the page opened (and every 15 minutes while it stays open)." + sited
+    : via === "relay"
+    ? "Home weather stations at the lakeside, from the Citizen Weather Observer Program as the background relay last saved them" + (newest > 0 ? ", " + (age < 90 ? age + " minutes" : (age / 60).toFixed(1) + " hours") + " ago" : "") + " (the live reading is not reachable just now)." + sited
+    : "Home weather stations at the lakeside, as the National Weather Service relays them, about four hours late (the live reading and the relay are not reachable just now)."));
   const tw = el("div", "tablewrap"), t = el("table"), hd = el("tr");
   ["Station", "Latest", "Wind", "Gusts", "From", "Expected there", "Lake vs forecast"].forEach(x => hd.appendChild(el("th", null, x))); t.appendChild(hd);
   list.forEach(st => {
