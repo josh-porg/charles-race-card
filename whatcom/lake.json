@@ -34,6 +34,7 @@
   "name": "Bellingham airport"
  },
  "relay": "https://raw.githubusercontent.com/josh-porg/charles-race-card/lakes-data/whatcom/live.json",
+ "live": "https://lake-stations.saturn5j.workers.dev/?lake=whatcom",
  "stations": [
   {
    "call": "DW0884",

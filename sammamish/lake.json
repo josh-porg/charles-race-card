@@ -34,6 +34,7 @@
   "name": "Renton airport"
  },
  "relay": "https://raw.githubusercontent.com/josh-porg/charles-race-card/lakes-data/sammamish/live.json",
+ "live": "https://lake-stations.saturn5j.workers.dev/?lake=sammamish",
  "stations": [
   {
    "call": "GW8062",
